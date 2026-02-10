@@ -1,0 +1,19 @@
+﻿{
+  "spec_dir": "spec",
+  "date_format": "%Y-%m-%d",
+  "placeholders": ["TODO", "TBD", "待补充", "待确认", "（待）"],
+  "prd_tech_words": ["数据库", "SQL", "表", "接口", "API", "代码", "架构", "技术方案", "实现"],
+  "clarify_columns": [
+    "ID",
+    "状态",
+    "优先级",
+    "影响范围",
+    "归属文档",
+    "关联章节",
+    "问题/待确认点",
+    "用户确认/补充",
+    "解决方案"
+  ],
+  "clarify_statuses": ["待确认", "已确认"],
+  "rules_copy_allowlist": ["coding.mdc", "delivery.mdc"]
+}
