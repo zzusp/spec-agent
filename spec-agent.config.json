@@ -3,6 +3,7 @@
   "date_format": "%Y-%m-%d",
   "placeholders": ["TODO", "TBD", "待补充", "待确认", "（待）"],
   "prd_tech_words": ["数据库", "SQL", "表", "接口", "API", "代码", "架构", "技术方案", "实现"],
+  "prd_tech_whitelist": ["数据库连接信息", "数据口径", "业务口径"],
   "clarify_columns": [
     "ID",
     "状态",
@@ -15,5 +16,17 @@
     "解决方案"
   ],
   "clarify_statuses": ["待确认", "已确认"],
+  "clarify_confirmed_status": "已确认",
+  "enable_auto_seed_clarifications": true,
+  "max_seed_questions_per_doc": 3,
+  "doc_clarify_seeds": {},
+  "max_context_file_kb": 128,
+  "min_doc_bullets": {
+    "analysis": 8,
+    "prd": 10,
+    "tech": 10,
+    "acceptance": 8
+  },
+  "dry_run_default": false,
   "rules_copy_allowlist": ["coding.mdc", "delivery.mdc"]
 }
