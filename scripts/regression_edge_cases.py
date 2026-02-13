@@ -72,7 +72,6 @@ def test_large_context_file_warning():
         con.commit()
         con.close()
 
-    run(["write-analysis", "--name", req])
     clar = req_dir / "00-clarifications.md"
     text = clar.read_text(encoding="utf-8")
     if "skipped too large" not in text:

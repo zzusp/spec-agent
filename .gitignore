@@ -1,0 +1,4 @@
+scripts/__pycache__/
+*.pyc
+spec/.active
+spec/00-global-memory.md

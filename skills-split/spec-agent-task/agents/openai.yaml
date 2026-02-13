@@ -1,0 +1,4 @@
+interface:
+  display_name: "Spec Agent Task"
+  short_description: "AI-first workflow coordinator"
+  default_prompt: "Use $spec-agent-task to run AI-first requirement delivery where the caller AI writes docs directly and scripts handle state/checks."

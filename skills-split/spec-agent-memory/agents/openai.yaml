@@ -1,0 +1,5 @@
+interface:
+  display_name: "Spec Agent Memory"
+  short_description: "Persist global project memory"
+  default_prompt: "Use $spec-agent-memory to record global user or project constraints shared across all requirements."
+

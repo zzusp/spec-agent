@@ -1,0 +1,4 @@
+interface:
+  display_name: "Spec Agent Update"
+  short_description: "Revise docs with caller AI"
+  default_prompt: "Use $spec-agent-update to revise existing docs directly with caller AI for the active requirement."

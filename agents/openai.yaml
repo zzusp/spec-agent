@@ -1,4 +1,0 @@
-interface:
-  display_name: "Spec Agent"
-  short_description: "Spec docs workflow with clarification loop"
-  default_prompt: "Use $spec-agent to initialize a requirement and generate analysis, PRD, tech, acceptance, and clarifications documents."

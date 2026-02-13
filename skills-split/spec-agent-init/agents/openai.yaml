@@ -1,0 +1,4 @@
+interface:
+  display_name: "Spec Agent Init"
+  short_description: "Initialize workspace state"
+  default_prompt: "Use $spec-agent-init to initialize requirement workspace state before caller AI writes document content."

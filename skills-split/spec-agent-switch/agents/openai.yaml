@@ -1,0 +1,5 @@
+interface:
+  display_name: "Spec Agent Switch"
+  short_description: "Switch active requirement"
+  default_prompt: "Use $spec-agent-switch to switch active requirement context by name or path."
+

@@ -12,139 +12,131 @@
 
 - `spec/YYYY-MM-DD/<requirement_name>/`
 
-## 快速开始
+## 默认工作模式（split-only）
 
-1. 初始化需求
+当前仅使用 `skills-split/` 技能体系。
+根目录旧主技能入口（`SKILL.md`、`agents/openai.yaml`）已移除，这是有意的架构收敛。
 
-```bash
-python scripts/spec_agent.py init --name order-refund --title "退款流程优化" --desc "用户可发起退款申请，支持审核与回退"
-```
+核心入口：
+- `spec-agent-task`：统一编排入口（AI IDE 推荐直接调用）
 
-2. 一键生成全部文档
+子技能：
+- `spec-agent-init`：初始化需求状态
+- `spec-agent-write`：调用端 AI 直接撰写 4 份文档
+- `spec-agent-update`：调用端 AI 做通用文档重写
+- `spec-agent-clarify`：基于已确认澄清重写文档
+- `spec-agent-check`：执行质量门禁检查
+- `spec-agent-memory`：记录跨需求通用规则
+- `spec-agent-switch`：切换当前激活需求
+- `spec-agent-chat`：在 AI IDE 对话中自动识别“澄清/记忆”，记录并联动更新文档
 
-```bash
-python scripts/spec_agent.py write-all --name order-refund
-```
+共享状态：
 
-3. 用户补充澄清后更新文档
+- `spec/YYYY-MM-DD/<requirement_name>/`
+- `spec/.active`
+- `spec/00-global-memory.md`
 
-```bash
-python scripts/spec_agent.py update --name order-refund
-```
-
-4. 最终检查
-
-```bash
-python scripts/spec_agent.py final-check --name order-refund
-```
+执行原则（AI-first）：
+- 文档正文由调用端 AI 直接写入文件。
+- 脚本主要负责状态与校验（记忆快照同步、初始化、澄清检查、最终检查）。
 
 ## 在 AI IDE 中使用（Cursor / Claude Code）
 
-建议把下面整段直接粘贴给 AI：
+直接这样用：
 
-```text
-现在产品提了一个新需求，请你使用 spec-agent 的标准流程处理这个需求。
-需求如下：xxxxxxx
-数据库连接信息：xxxxxx
-```
+- `/spec-agent-task 现在产品提了一个新需求，需求如下：……`
+- 如果有数据库信息，也直接追加在同一句里（例如连接地址、库名、只读账号等）。
 
-对应命令通常是：
+## 3 个最常见场景（可直接复制）
 
-```bash
-# 未提供 --name/--title 时会自动生成需求英文名和标题
-python scripts/spec_agent.py init --title "退款流程优化" --desc "<raw_requirement>"
-# init 会自动 set-active，后续可直接执行
-python scripts/spec_agent.py write-all
-python scripts/spec_agent.py final-check
-```
+### 1. 新需求
+
+`/spec-agent-task 现在有一个新需求，需求如下：……（补充目标、范围、限制、上下游、数据库信息）`
+
+### 2. 用户补充澄清
+
+`/spec-agent-chat 补充一下：退款失败时最多重试 3 次，超过就告警。`
+
+### 3. 沉淀全局记忆
+
+`/spec-agent-chat 以后所有需求默认都要记录操作人和来源IP。`
+
+AI 会按流程自动做这几件事：
+
+1. 先创建这次需求对应的文档目录，并设置为当前激活需求。
+2. 再按固定顺序生成文档：分析 -> PRD -> 技术方案 -> 验收清单。
+3. 生成/更新时必须使用上游文档作为输入：
+   - PRD 必须结合分析报告
+   - 技术方案必须结合分析报告和 PRD
+   - 验收清单必须结合分析报告、PRD、技术方案
+4. 最后做一致性检查，标出冲突、遗漏和不明确点。
+
+### 文档依赖顺序（强约束）
+
+- 顺序：`01-analysis.md` -> `02-prd.md` -> `03-tech.md` -> `04-acceptance.md`
+- 规则：
+  - 上游文档变更后，下游文档必须同步更新
+  - 不允许跳过上游直接改下游
+  - 验收文档必须基于前三份文档的最新版本
+  - 四份文档在新建和更新时，都必须结合：
+    - 全局记忆文档 `spec/00-global-memory.md`
+    - 已确认澄清项 `00-clarifications.md/.json`
+  - `prd/tech/acceptance` 必须包含依赖签名区块：
+    - `<!-- DEPENDENCY-SIGNATURE:START --> ... <!-- DEPENDENCY-SIGNATURE:END -->`
+    - 签名中记录其上游文档哈希（例如 `analysis/prd/tech`）
+  - `final-check` 会基于文档内容哈希（记录在 `metadata.json` 的 `doc_dependency_state`）检查下游是否使用了上游最新内容
 
 ### 用户补充澄清后如何触发更新
 
-1. 在 `spec/YYYY-MM-DD/<name>/00-clarifications.md` 中把目标项改为 `已确认`，并填写 `用户确认/补充` 与 `解决方案`。
-2. 让 AI 执行更新：
+1. 打开 `spec/YYYY-MM-DD/<name>/00-clarifications.md`，把确认过的问题状态改成 `已确认`，并补全“用户确认/补充”和“解决方案”。
+2. 回到 AI IDE，直接发送：`/spec-agent-clarify 我已经补充并确认了澄清文档，请基于已确认项重新更新全部文档。`或`/spec-agent-clarify 已确认，请更新`
+3. 如果你希望“只要还有未确认项就不要更新”，直接发送：`/spec-agent-clarify 按严格模式执行，有未确认项就先报出来。`
 
-```text
-我已经补充并确认了 00-clarifications.md，请基于已确认澄清执行 update。
-```
+## 快速开始
 
-3. 对应命令：
+1. 把原始需求完整告诉 AI（目标、范围、限制、上下游、数据库信息）。
+2. 让 AI 按标准流程先生成首版完整文档。
+3. 你根据澄清文档逐条补充确认信息。
+4. 再让 AI 基于已确认澄清重生成并复检，直到问题收敛。
 
-```bash
-python scripts/spec_agent.py update --name <name>
-```
+## 常用使用方式（AI IDE）
 
-4. 若你希望“有未确认项就阻断更新”，使用严格模式：
+### 新需求启动
 
-```bash
-python scripts/spec_agent.py update --name <name> --strict
-```
+`/spec-agent-init 这是一个新需求，请初始化并生成第一版完整文档。若名称和标题没给你，请你自动生成。`
 
-## 常用命令
+### 文档重生成
 
-### 初始化与切换
-
-```bash
-# 文本初始化（--name/--title 可选；缺省自动生成）
-python scripts/spec_agent.py init --name <name> --desc "<raw_requirement>"
-python scripts/spec_agent.py init --desc "<raw_requirement>"
-
-# JSON 字符串初始化
-python scripts/spec_agent.py init --name <name> --desc-json '{"goal":"...","scope":["..."]}'
-
-# 文件初始化（.json/.md/.txt）
-python scripts/spec_agent.py init --name <name> --desc-file requirements.md
-
-# 查看需求列表
-python scripts/spec_agent.py list
-
-# 切换 active 需求
-python scripts/spec_agent.py set-active --name <name>
-python scripts/spec_agent.py set-active --path spec/2026-02-11/<name>
-```
-
-### 文档生成
-
-```bash
-# 一键生成 4 份文档 + final-check
-python scripts/spec_agent.py write-all --name <name>
-
-# 分阶段生成
-python scripts/spec_agent.py write-analysis --name <name>
-python scripts/spec_agent.py write-prd --name <name>
-python scripts/spec_agent.py write-tech --name <name>
-python scripts/spec_agent.py write-acceptance --name <name>
-```
+`/spec-agent-update 基于当前激活需求，重生成完整文档并做最终检查。`
 
 ### 澄清闭环
 
-```bash
-# 基于澄清更新 4 份文档（并自动 final-check）
-python scripts/spec_agent.py update --name <name>
-
-# 严格模式：存在未闭环澄清项时阻断更新
-python scripts/spec_agent.py update --name <name> --strict
-```
+`/spec-agent-clarify 我已经补充了澄清文档，请基于已确认项更新全部文档并复检。`  
+如果你要卡口更严格：`/spec-agent-clarify 未确认项不要跳过，先拦截并列出来。`
 
 ### 分析辅助
 
-```bash
-# 扫描候选模块（写入 analysis 的 scan 区块）
-python scripts/spec_agent.py scan --name <name>
+`/spec-agent-write 先扫描相关模块并补充到分析文档，再结合数据库结构做分析结论。`
 
-# 数据库 schema 探查（写入 analysis 的 db-schema 区块）
-python scripts/spec_agent.py inspect-db --name <name>
-```
+### 对话式更新
+
+`/spec-agent-chat 这个需求补充：失败重试最多 3 次，超过要告警。`  
+`/spec-agent-chat 以后所有需求默认都要输出审计字段 created_by/updated_by。`
+
+注意：如果当前没有激活需求（`spec/.active` 不存在或无效），`spec-agent-chat` 会先提示你初始化或切换需求，再继续处理。
+
+`spec-agent-chat` 会默认返回一张“状态卡片”，包括：
+- 当前需求
+- 本次识别（澄清/记忆）
+- 写入结果
+- 文档更新（按 analysis -> prd -> tech -> acceptance）
+- 变更摘要（按文档 diff）
+- 检查结果与下一步建议
 
 ### 预览与机器可读输出
 
-```bash
-# 预览，不落盘
-python scripts/spec_agent.py write-all --name <name> --dry-run
-
-# JSON 输出（支持放在子命令前/后）
-python scripts/spec_agent.py --json-output list
-python scripts/spec_agent.py list --json-output
-```
+`/spec-agent-task 先做预览，不要落盘；确认后再正式写入。`  
+如果你需要对接外部流程，也可以直接在同一句里要求 AI 返回结构化结果（如 JSON）。
 
 ## 澄清文档如何填写
 
@@ -188,7 +180,7 @@ spec/
 ```bash
 python scripts/regression_smoke.py
 python scripts/regression_edge_cases.py
-python scripts/regression_skill_contract.py
+python scripts/regression_split_skill_contract.py
 ```
 
 或一键：
@@ -199,7 +191,7 @@ python scripts/regression_all.py
 
 说明：
 - `regression_edge_cases.py` 会临时覆盖配置用于负向测试，需顺序执行。
-- `regression_skill_contract.py` 校验 skill 契约（`SKILL.md` frontmatter 与 `agents/openai.yaml` 关键字段）。
+- `regression_split_skill_contract.py` 校验 `skills-split/` 下所有拆分 skill 的契约完整性。
 
 ## 配置
 

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Spec Agent Chat"
+  short_description: "Route chat to clarification or memory and auto-update docs"
+  default_prompt: "Use $spec-agent-chat to classify user chat as clarification or memory, persist it, then update impacted docs and report exact changes."

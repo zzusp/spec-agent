@@ -15,7 +15,7 @@ def run(script: str):
 def main():
     run("regression_smoke.py")
     run("regression_edge_cases.py")
-    run("regression_skill_contract.py")
+    run("regression_split_skill_contract.py")
     print("regression all: ok")
 
 

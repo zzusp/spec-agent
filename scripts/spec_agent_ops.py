@@ -37,12 +37,17 @@ def cmd_init(args):
     if dry_run:
         eng.runtime_log(f"[dry-run] would initialize: {path}")
         return
-    eng.init_docs(path, resolved_title, desc)
+    if getattr(args, "state_only", False):
+        eng.init_state_only(path, resolved_title, desc)
+    else:
+        eng.init_docs(path, resolved_title, desc)
     if args.clarify:
         meta_path = path / "metadata.json"
         meta = eng.json.loads(eng.read_file(meta_path))
         meta["initial_clarifications"] = args.clarify
         eng.write_file(meta_path, eng.json.dumps(meta, ensure_ascii=False, indent=2))
+    runtime_context = desc if not args.clarify else f"{desc}\n{args.clarify}"
+    eng.ensure_runtime_context_clarifications(path, runtime_context, dry_run=False)
     eng.set_active(path)
     eng.emit(
         args,
@@ -50,66 +55,10 @@ def cmd_init(args):
         path=str(path),
         name=req_name,
         title=resolved_title,
+        state_only=bool(getattr(args, "state_only", False)),
         auto_named=not bool(requested_name),
         auto_titled=not bool((args.title or "").strip()),
     )
-
-
-def cmd_write_analysis(args):
-    dry_run = eng.is_dry_run(args)
-    path = eng.resolve_path(args)
-    title, original_desc, extra = eng._meta_context(path)
-    points = eng.split_requirement_points(original_desc)
-    context_text = original_desc if not extra else f"{original_desc}\n{extra}"
-    modules = eng.scan_modules()
-    db_connections, _, _ = eng.extract_context_db_connections(context_text)
-    eng.ensure_runtime_context_clarifications(path, context_text, dry_run=dry_run)
-    rows = eng.load_clar_rows(path)
-    analysis_source = original_desc
-    if extra:
-        analysis_source = f"{original_desc}\n\n补充澄清信息：\n{extra}"
-    analysis = eng.build_analysis_doc(title, analysis_source, modules, points, eng.render_clarified(rows, "analysis"), db_connections)
-    analysis = eng.replace_db_schema_block(analysis, eng.build_db_schema_summary(db_connections))
-    eng.write_generated_doc(path / eng.DOC_FILES["analysis"], analysis, dry_run=dry_run)
-    eng.ensure_seed_clarifications(path, "analysis", dry_run=dry_run)
-    eng.emit(args, f"analysis written: {path / eng.DOC_FILES['analysis']}", file=str(path / eng.DOC_FILES["analysis"]))
-
-
-def cmd_write_prd(args):
-    dry_run = eng.is_dry_run(args)
-    path = eng.resolve_path(args)
-    title, desc, _extra = eng._meta_context(path)
-    points = eng.split_requirement_points(desc)
-    rows = eng.load_clar_rows(path)
-    prd = eng.build_prd_doc(title, desc, points, eng.render_clarified(rows, "prd"))
-    eng.write_generated_doc(path / eng.DOC_FILES["prd"], prd, dry_run=dry_run)
-    eng.ensure_seed_clarifications(path, "prd", dry_run=dry_run)
-    eng.emit(args, f"prd written: {path / eng.DOC_FILES['prd']}", file=str(path / eng.DOC_FILES["prd"]))
-
-
-def cmd_write_tech(args):
-    dry_run = eng.is_dry_run(args)
-    path = eng.resolve_path(args)
-    title, desc, _extra = eng._meta_context(path)
-    points = eng.split_requirement_points(desc)
-    modules = eng.scan_modules()
-    rows = eng.load_clar_rows(path)
-    tech = eng.build_tech_doc(title, path.name, points, modules, eng.render_clarified(rows, "tech"))
-    eng.write_generated_doc(path / eng.DOC_FILES["tech"], tech, dry_run=dry_run)
-    eng.ensure_seed_clarifications(path, "tech", dry_run=dry_run)
-    eng.emit(args, f"tech written: {path / eng.DOC_FILES['tech']}", file=str(path / eng.DOC_FILES["tech"]))
-
-
-def cmd_write_acceptance(args):
-    dry_run = eng.is_dry_run(args)
-    path = eng.resolve_path(args)
-    title, desc, _extra = eng._meta_context(path)
-    points = eng.split_requirement_points(desc)
-    rows = eng.load_clar_rows(path)
-    acc = eng.build_acceptance_doc(title, path.name, points, eng.render_clarified(rows, "acceptance"))
-    eng.write_generated_doc(path / eng.DOC_FILES["acceptance"], acc, dry_run=dry_run)
-    eng.ensure_seed_clarifications(path, "acceptance", dry_run=dry_run)
-    eng.emit(args, f"acceptance written: {path / eng.DOC_FILES['acceptance']}", file=str(path / eng.DOC_FILES["acceptance"]))
 
 
 def cmd_list(args):
@@ -147,75 +96,37 @@ def cmd_set_active(args):
     eng.emit(args, f"active: {path}", path=str(path))
 
 
-def cmd_update(args):
-    dry_run = eng.is_dry_run(args)
+def cmd_check_clarifications(args):
     path = eng.resolve_path(args)
     clar_path = path / eng.DOC_FILES["clarifications"]
-    if clar_path.exists():
-        rows = eng.load_clar_rows(path)
-        if args.strict and eng.has_unconfirmed(rows):
-            pending = eng.list_unconfirmed(rows)
-            hints = "\n".join([f"- {rid} {q}" for rid, q in pending[:10]])
-            suffix = f"\nPending:\n{hints}" if hints else ""
-            raise SystemExit("clarifications not closed; confirm items or rerun without --strict" + suffix)
-    title, original_desc, extra = eng._meta_context(path)
-    points = eng.split_requirement_points(original_desc)
-    context_text = original_desc if not extra else f"{original_desc}\n{extra}"
-    modules = eng.scan_modules()
-    db_connections, _, _ = eng.extract_context_db_connections(context_text)
-    eng.ensure_runtime_context_clarifications(path, context_text, dry_run=dry_run)
+    if not clar_path.exists():
+        raise SystemExit("clarifications file not found")
     rows = eng.load_clar_rows(path)
-    analysis_source = original_desc
-    if extra:
-        analysis_source = f"{original_desc}\n\n补充澄清信息：\n{extra}"
-    analysis_doc = eng.build_analysis_doc(title, analysis_source, modules, points, eng.render_clarified(rows, "analysis"), db_connections)
-    fresh_db_block = eng.build_db_schema_summary(db_connections)
-    analysis_doc = eng.replace_db_schema_block(analysis_doc, fresh_db_block)
-    analysis_path = path / eng.DOC_FILES["analysis"]
-    if analysis_path.exists():
-        existing_db_block = eng.extract_block(eng.read_file(analysis_path), eng.DB_SCHEMA_START, eng.DB_SCHEMA_END)
-        if existing_db_block and "未执行数据库自动探查" not in existing_db_block:
-            analysis_doc = eng.replace_db_schema_block(analysis_doc, existing_db_block)
-    eng.write_generated_doc(analysis_path, analysis_doc, dry_run=dry_run)
-    eng.write_generated_doc(path / eng.DOC_FILES["prd"], eng.build_prd_doc(title, original_desc, points, eng.render_clarified(rows, "prd")), dry_run=dry_run)
-    eng.write_generated_doc(path / eng.DOC_FILES["tech"], eng.build_tech_doc(title, path.name, points, modules, eng.render_clarified(rows, "tech")), dry_run=dry_run)
-    eng.write_generated_doc(path / eng.DOC_FILES["acceptance"], eng.build_acceptance_doc(title, path.name, points, eng.render_clarified(rows, "acceptance")), dry_run=dry_run)
-    eng.ensure_seed_clarifications(path, "analysis", dry_run=dry_run)
-    eng.ensure_seed_clarifications(path, "prd", dry_run=dry_run)
-    eng.ensure_seed_clarifications(path, "tech", dry_run=dry_run)
-    eng.ensure_seed_clarifications(path, "acceptance", dry_run=dry_run)
-    issues = eng.final_check(path, write_back=not dry_run)
-    eng.emit(args, f"updated: {path}", path=str(path), issues=len(issues))
+    pending = eng.list_unconfirmed(rows)
+    if args.strict and pending:
+        hints = "\n".join([f"- {rid} {q}" for rid, q in pending[:20]])
+        suffix = f"\nPending:\n{hints}" if hints else ""
+        raise SystemExit("clarifications not closed" + suffix)
+    eng.emit(
+        args,
+        f"clarifications pending: {len(pending)}",
+        path=str(path),
+        pending=len(pending),
+        pending_items=[{"id": rid, "question": q} for rid, q in pending],
+    )
 
 
-def cmd_write_all(args):
+def cmd_sync_memory(args):
     dry_run = eng.is_dry_run(args)
     path = eng.resolve_path(args)
-    title, original_desc, extra = eng._meta_context(path)
-    points = eng.split_requirement_points(original_desc)
-    context_text = original_desc if not extra else f"{original_desc}\n{extra}"
-    modules = eng.scan_modules()
-    db_connections, _, _ = eng.extract_context_db_connections(context_text)
-
-    eng.ensure_runtime_context_clarifications(path, context_text, dry_run=dry_run)
-    rows = eng.load_clar_rows(path)
-
-    analysis_source = original_desc if not extra else f"{original_desc}\n\n补充澄清信息：\n{extra}"
-    analysis_doc = eng.build_analysis_doc(title, analysis_source, modules, points, eng.render_clarified(rows, "analysis"), db_connections)
-    analysis_doc = eng.replace_db_schema_block(analysis_doc, eng.build_db_schema_summary(db_connections))
-    eng.write_generated_doc(path / eng.DOC_FILES["analysis"], analysis_doc, dry_run=dry_run)
-
-    eng.write_generated_doc(path / eng.DOC_FILES["prd"], eng.build_prd_doc(title, original_desc, points, eng.render_clarified(rows, "prd")), dry_run=dry_run)
-    eng.write_generated_doc(path / eng.DOC_FILES["tech"], eng.build_tech_doc(title, path.name, points, modules, eng.render_clarified(rows, "tech")), dry_run=dry_run)
-    eng.write_generated_doc(path / eng.DOC_FILES["acceptance"], eng.build_acceptance_doc(title, path.name, points, eng.render_clarified(rows, "acceptance")), dry_run=dry_run)
-
-    eng.ensure_seed_clarifications(path, "analysis", dry_run=dry_run)
-    eng.ensure_seed_clarifications(path, "prd", dry_run=dry_run)
-    eng.ensure_seed_clarifications(path, "tech", dry_run=dry_run)
-    eng.ensure_seed_clarifications(path, "acceptance", dry_run=dry_run)
-
-    issues = eng.final_check(path, write_back=not dry_run)
-    eng.emit(args, f"all docs written: {path}", path=str(path), issues=len(issues))
+    meta = eng.sync_memory_snapshot(path, dry_run=dry_run)
+    eng.emit(
+        args,
+        f"memory synced: {path}",
+        path=str(path),
+        global_memory_hash=str(meta.get("global_memory_hash", "")),
+        global_memory_exists=bool(meta.get("global_memory_exists", False)),
+    )
 
 
 def cmd_final_check(args):
@@ -300,6 +211,7 @@ def build_parser():
     p_init.add_argument("--desc-file", help="path to requirement source file (.json/.md/.txt)")
     p_init.add_argument("--clarify", help="initial clarification text from user")
     p_init.add_argument("--date", help="date (YYYY-MM-DD)")
+    p_init.add_argument("--state-only", action="store_true", help="initialize metadata/state only; skip template doc generation")
     p_init.add_argument("--dry-run", action="store_true")
     p_init.set_defaults(func=cmd_init)
 
@@ -312,12 +224,17 @@ def build_parser():
     p_set.add_argument("--dry-run", action="store_true")
     p_set.set_defaults(func=cmd_set_active)
 
-    p_update = sub.add_parser("update")
-    p_update.add_argument("--name")
-    p_update.add_argument("--path")
-    p_update.add_argument("--strict", action="store_true", help="block update if clarifications not confirmed")
-    p_update.add_argument("--dry-run", action="store_true")
-    p_update.set_defaults(func=cmd_update)
+    p_clar_check = sub.add_parser("check-clarifications")
+    p_clar_check.add_argument("--name")
+    p_clar_check.add_argument("--path")
+    p_clar_check.add_argument("--strict", action="store_true", help="exit non-zero when unresolved clarification items exist")
+    p_clar_check.set_defaults(func=cmd_check_clarifications)
+
+    p_sync_mem = sub.add_parser("sync-memory")
+    p_sync_mem.add_argument("--name")
+    p_sync_mem.add_argument("--path")
+    p_sync_mem.add_argument("--dry-run", action="store_true")
+    p_sync_mem.set_defaults(func=cmd_sync_memory)
 
     p_check = sub.add_parser("final-check")
     p_check.add_argument("--name")
@@ -341,36 +258,6 @@ def build_parser():
     p_inspect.add_argument("--path")
     p_inspect.add_argument("--dry-run", action="store_true")
     p_inspect.set_defaults(func=cmd_inspect_db)
-
-    p_all = sub.add_parser("write-all")
-    p_all.add_argument("--name")
-    p_all.add_argument("--path")
-    p_all.add_argument("--dry-run", action="store_true")
-    p_all.set_defaults(func=cmd_write_all)
-
-    p_analysis = sub.add_parser("write-analysis")
-    p_analysis.add_argument("--name")
-    p_analysis.add_argument("--path")
-    p_analysis.add_argument("--dry-run", action="store_true")
-    p_analysis.set_defaults(func=cmd_write_analysis)
-
-    p_prd = sub.add_parser("write-prd")
-    p_prd.add_argument("--name")
-    p_prd.add_argument("--path")
-    p_prd.add_argument("--dry-run", action="store_true")
-    p_prd.set_defaults(func=cmd_write_prd)
-
-    p_tech = sub.add_parser("write-tech")
-    p_tech.add_argument("--name")
-    p_tech.add_argument("--path")
-    p_tech.add_argument("--dry-run", action="store_true")
-    p_tech.set_defaults(func=cmd_write_tech)
-
-    p_acceptance = sub.add_parser("write-acceptance")
-    p_acceptance.add_argument("--name")
-    p_acceptance.add_argument("--path")
-    p_acceptance.add_argument("--dry-run", action="store_true")
-    p_acceptance.set_defaults(func=cmd_write_acceptance)
 
     return p
 

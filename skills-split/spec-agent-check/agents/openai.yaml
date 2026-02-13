@@ -1,0 +1,5 @@
+interface:
+  display_name: "Spec Agent Check"
+  short_description: "Run final document checks"
+  default_prompt: "Use $spec-agent-check to run final-check for the active requirement and report conflicts or missing items."
+

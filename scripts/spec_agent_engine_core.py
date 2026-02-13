@@ -45,6 +45,7 @@ DEFAULT_CONFIG = {
         "tech": 10,
         "acceptance": 8,
     },
+    "max_new_clarifications_per_round": 10,
     "dry_run_default": False,
     "rules_copy_allowlist": [],
 }
@@ -127,6 +128,9 @@ def validate_config(cfg):
                 raise SystemExit(f"config min_doc_bullets invalid key: {k}")
             if not isinstance(v, int) or v < 0:
                 raise SystemExit("config min_doc_bullets values must be non-negative integer")
+    if "max_new_clarifications_per_round" in cfg:
+        if not isinstance(cfg["max_new_clarifications_per_round"], int) or cfg["max_new_clarifications_per_round"] <= 0:
+            raise SystemExit("config max_new_clarifications_per_round must be positive integer")
     if "dry_run_default" in cfg and not isinstance(cfg["dry_run_default"], bool):
         raise SystemExit("config dry_run_default must be boolean")
 
@@ -137,6 +141,7 @@ SPEC_DIR = Path(CONFIG["spec_dir"]).expanduser()
 if not SPEC_DIR.is_absolute():
     SPEC_DIR = ROOT / SPEC_DIR
 ACTIVE_FILE = SPEC_DIR / ".active"
+GLOBAL_MEMORY_FILE = SPEC_DIR / "00-global-memory.md"
 
 PLACEHOLDERS = CONFIG["placeholders"]
 PLACEHOLDERS_EFFECTIVE = [p for p in PLACEHOLDERS if p != "待确认"]
@@ -151,6 +156,7 @@ ENABLE_AUTO_SEEDS = bool(CONFIG.get("enable_auto_seed_clarifications", True))
 MAX_SEED_PER_DOC = int(CONFIG.get("max_seed_questions_per_doc", 3))
 MAX_CONTEXT_FILE_KB = int(CONFIG.get("max_context_file_kb", 128))
 MIN_DOC_BULLETS = CONFIG.get("min_doc_bullets", {}) if isinstance(CONFIG.get("min_doc_bullets", {}), dict) else {}
+MAX_NEW_CLARIFICATIONS_PER_ROUND = int(CONFIG.get("max_new_clarifications_per_round", 10))
 DRY_RUN_DEFAULT = bool(CONFIG.get("dry_run_default", False))
 
 DOC_CLARIFY_SEEDS = {
@@ -324,9 +330,98 @@ def is_dry_run(args) -> bool:
     return bool(getattr(args, "dry_run", False) or DRY_RUN_DEFAULT)
 
 
+def _flatten_requirement_obj(data) -> str:
+    if isinstance(data, str):
+        return data.strip()
+    if isinstance(data, list):
+        lines = []
+        for item in data:
+            if isinstance(item, (dict, list)):
+                lines.append(_flatten_requirement_obj(item))
+            else:
+                lines.append(str(item).strip())
+        return "\n".join([f"- {x}" for x in lines if x])
+    if isinstance(data, dict):
+        lines = []
+        for key, value in data.items():
+            if isinstance(value, (dict, list)):
+                lines.append(f"{key}:")
+                nested = _flatten_requirement_obj(value)
+                for ln in nested.splitlines():
+                    lines.append(f"  {ln}")
+            else:
+                lines.append(f"{key}: {value}")
+        return "\n".join(lines)
+    return str(data).strip()
+
+
+def parse_requirement_input(args) -> str:
+    desc_parts = []
+    if getattr(args, "desc", None):
+        desc_parts.append(str(args.desc).strip())
+    if getattr(args, "desc_json", None):
+        try:
+            data = json.loads(args.desc_json)
+        except Exception as ex:
+            raise SystemExit(f"invalid --desc-json: {ex}")
+        desc_parts.append(_flatten_requirement_obj(data))
+    if getattr(args, "desc_file", None):
+        fp = Path(args.desc_file)
+        if not fp.is_absolute():
+            fp = (ROOT / fp).resolve()
+        if not fp.exists():
+            raise SystemExit(f"desc file not found: {fp}")
+        raw = fp.read_text(encoding="utf-8-sig")
+        loaded = None
+        if fp.suffix.lower() == ".json":
+            try:
+                loaded = json.loads(raw)
+            except Exception as ex:
+                raise SystemExit(f"invalid desc json file: {ex}")
+        if loaded is None:
+            desc_parts.append(raw.strip())
+        else:
+            desc_parts.append(_flatten_requirement_obj(loaded))
+    merged = "\n\n".join([p for p in desc_parts if p]).strip()
+    if not merged:
+        raise SystemExit("init requires one of --desc, --desc-json, --desc-file")
+    return merged
+
+
 def set_active(path: Path):
     ensure_spec_dir()
     ACTIVE_FILE.write_text(str(path), encoding="utf-8")
+
+
+def read_global_memory_text() -> str:
+    if not GLOBAL_MEMORY_FILE.exists():
+        return ""
+    return GLOBAL_MEMORY_FILE.read_text(encoding="utf-8-sig")
+
+
+def global_memory_hash() -> str:
+    text = read_global_memory_text()
+    if not text.strip():
+        return ""
+    return hashlib.md5(text.encode("utf-8")).hexdigest()
+
+
+def sync_memory_snapshot(path: Path, dry_run: bool = False) -> dict:
+    meta_path = path / "metadata.json"
+    if not meta_path.exists():
+        raise SystemExit("metadata.json not found, run init first")
+    try:
+        meta = json.loads(read_file(meta_path))
+    except Exception:
+        raise SystemExit("invalid metadata.json")
+    meta["global_memory_hash"] = global_memory_hash()
+    meta["global_memory_exists"] = GLOBAL_MEMORY_FILE.exists()
+    meta["global_memory_synced_at"] = dt.datetime.now().isoformat(timespec="seconds")
+    if dry_run:
+        runtime_log(f"[dry-run] would update: {meta_path}")
+        return meta
+    write_file(meta_path, json.dumps(meta, ensure_ascii=False, indent=2))
+    return meta
 
 
 def get_active() -> Path | None:
@@ -371,6 +466,9 @@ def init_docs(path: Path, title: str, original_requirement: str):
         "title": title,
         "created_at": dt.datetime.now().isoformat(timespec="seconds"),
         "original_requirement": original_requirement,
+        "global_memory_hash": global_memory_hash(),
+        "global_memory_exists": GLOBAL_MEMORY_FILE.exists(),
+        "global_memory_synced_at": dt.datetime.now().isoformat(timespec="seconds"),
     }
     write_file(path / "metadata.json", json.dumps(meta, ensure_ascii=False, indent=2))
 
@@ -506,9 +604,25 @@ def init_docs(path: Path, title: str, original_requirement: str):
     acceptance = f"""# 验收清单 - {title}
 
 ## 验收项清单
-| 编号 | 验收项 | 预期结果 | 验证方式 |
-|---|---|---|---|
-| A-001 | 待补充 | 待补充 | 待补充 |
+| 编号 | 验收项 | 预期结果 |
+|---|---|---|
+| A-001 | 待补充（R-01） | 待补充 |
+
+## 验收计划与步骤
+### A-001 验收计划与步骤（R-01）
+- 验收目标：待补充
+- 前置条件：
+  1. 待补充
+  2. 待补充
+- 验收步骤：
+  1. 待补充
+  2. 待补充
+  3. 待补充
+- 通过标准：
+  1. 待补充
+  2. 待补充
+- 失败处理：
+  1. 待补充
 
 ## 受影响功能验证
 - 待补充：列出受影响功能的验证项。
@@ -549,6 +663,62 @@ def init_docs(path: Path, title: str, original_requirement: str):
     write_file(path / DOC_FILES["prd"], prd)
     write_file(path / DOC_FILES["tech"], tech)
     write_file(path / DOC_FILES["acceptance"], acceptance)
+
+
+def init_state_only(path: Path, title: str, original_requirement: str):
+    meta = {
+        "name": path.name,
+        "title": title,
+        "created_at": dt.datetime.now().isoformat(timespec="seconds"),
+        "original_requirement": original_requirement,
+        "global_memory_hash": global_memory_hash(),
+        "global_memory_exists": GLOBAL_MEMORY_FILE.exists(),
+        "global_memory_synced_at": dt.datetime.now().isoformat(timespec="seconds"),
+    }
+    write_file(path / "metadata.json", json.dumps(meta, ensure_ascii=False, indent=2))
+
+    clarifications = f"""# 澄清文档 - {title}
+
+## 说明
+- 本文档记录所有需要用户确认、补充和给出解决方案的内容。
+- 请在表格中填写 `状态`、`用户确认/补充`、`解决方案`，并补充 `优先级`、`影响范围`、`关联章节`。
+- `归属文档` 仅可填写：`analysis`、`prd`、`tech`、`acceptance`、`global`。
+- `状态` 仅可填写：`待确认` 或 `已确认`。
+
+## 需求上下文采集
+- 项目相关模块/入口：
+- 依赖系统/外部接口：
+- 数据库连接信息：
+- 权限与角色范围：
+
+## 澄清项
+{_render_clarification_header()}
+| C-001 | 已确认 | 低 | 全局 | global | 示例 | （示例）请确认需求范围的最终边界 | 示例项，可删除或替换 | 示例项，不参与严格闭环 |
+"""
+
+    write_file(path / DOC_FILES["clarifications"], clarifications)
+    write_file(
+        path / DOC_FILES["clarifications_json"],
+        json.dumps(
+            {
+                "rows": [
+                    {
+                        "id": "C-001",
+                        "status": "已确认",
+                        "priority": "低",
+                        "impact": "全局",
+                        "doc": "global",
+                        "section": "示例",
+                        "question": "（示例）请确认需求范围的最终边界",
+                        "answer": "示例项，可删除或替换",
+                        "solution": "示例项，不参与严格闭环",
+                    }
+                ]
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+    )
 
 
 def _normalize_header(cell: str) -> str:
@@ -901,5 +1071,273 @@ def build_db_schema_summary(connections: list[str]):
         else:
             lines.append(f"- {conn}：暂不支持自动探查（建议调用端按连接执行 schema 查询后回填）。")
     return "\n".join(lines)
+
+
+def replace_scan_block(content: str, block: str):
+    if SCAN_START not in content or SCAN_END not in content:
+        return content
+    pattern = re.compile(
+        re.escape(SCAN_START) + r"[\s\S]*?" + re.escape(SCAN_END),
+        re.MULTILINE,
+    )
+    replacement = f"{SCAN_START}\n{block}\n{SCAN_END}"
+    return pattern.sub(lambda _m: replacement, content)
+
+
+def replace_db_schema_block(content: str, block: str):
+    if DB_SCHEMA_START not in content or DB_SCHEMA_END not in content:
+        return content
+    pattern = re.compile(
+        re.escape(DB_SCHEMA_START) + r"[\s\S]*?" + re.escape(DB_SCHEMA_END),
+        re.MULTILINE,
+    )
+    replacement = f"{DB_SCHEMA_START}\n{block}\n{DB_SCHEMA_END}"
+    return pattern.sub(lambda _m: replacement, content)
+
+
+def extract_block(content: str, start_tag: str, end_tag: str) -> str | None:
+    if start_tag not in content or end_tag not in content:
+        return None
+    pattern = re.compile(
+        re.escape(start_tag) + r"\n?([\s\S]*?)\n?" + re.escape(end_tag),
+        re.MULTILINE,
+    )
+    match = pattern.search(content)
+    if not match:
+        return None
+    return match.group(1).strip()
+
+
+def scan_modules() -> list[str]:
+    ignore_dirs = {
+        ".git",
+        ".hg",
+        ".svn",
+        ".idea",
+        ".vscode",
+        ".cursor",
+        "node_modules",
+        "dist",
+        "build",
+        "out",
+        "spec",
+        "rules",
+        "scripts",
+        "__pycache__",
+    }
+    exts = {
+        ".py",
+        ".js",
+        ".ts",
+        ".tsx",
+        ".jsx",
+        ".java",
+        ".go",
+        ".cs",
+        ".php",
+        ".rb",
+        ".rs",
+        ".kt",
+        ".swift",
+    }
+    modules = set()
+
+    if shutil.which("rg"):
+        cmd = ["rg", "--files"]
+        for d in ignore_dirs:
+            cmd.extend(["-g", f"!{d}/**"])
+        try:
+            proc = subprocess.run(
+                cmd,
+                cwd=str(ROOT),
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            if proc.returncode in (0, 1):
+                for rel in proc.stdout.splitlines():
+                    p = Path(rel.strip())
+                    if not p.parts:
+                        continue
+                    if p.suffix.lower() not in exts:
+                        continue
+                    top = p.parts[0]
+                    if top in ignore_dirs:
+                        continue
+                    modules.add(top)
+                return sorted(modules)
+        except Exception:
+            pass
+
+    for path in ROOT.rglob("*"):
+        if path.is_dir():
+            continue
+        if path.suffix.lower() not in exts:
+            continue
+        parts = path.relative_to(ROOT).parts
+        if not parts:
+            continue
+        top = parts[0]
+        if top in ignore_dirs:
+            continue
+        modules.add(top)
+    return sorted(modules)
+
+
+def load_clar_rows(path: Path):
+    clar_path = path / DOC_FILES["clarifications"]
+    clar_json_path = path / DOC_FILES["clarifications_json"]
+    if not clar_path.exists() and not clar_json_path.exists():
+        raise SystemExit("clarifications files not found")
+
+    md_rows = []
+    if clar_path.exists():
+        md_rows, _ = parse_clarifications_table(read_file(clar_path))
+        md_rows = [normalize_clar_row(r) for r in md_rows]
+    js_rows = load_clar_rows_from_json(clar_json_path)
+
+    if md_rows and not js_rows:
+        save_clar_rows_to_json(clar_json_path, md_rows)
+        return md_rows
+    if js_rows and not md_rows:
+        if clar_path.exists():
+            synced = upsert_clar_table_rows(read_file(clar_path), js_rows)
+            write_file(clar_path, synced)
+        return js_rows
+    if not md_rows and not js_rows:
+        return []
+
+    md_mtime = clar_path.stat().st_mtime if clar_path.exists() else 0
+    js_mtime = clar_json_path.stat().st_mtime if clar_json_path.exists() else 0
+    chosen = md_rows if md_mtime >= js_mtime else js_rows
+    other = js_rows if chosen is md_rows else md_rows
+    if chosen != other:
+        save_clar_rows_to_json(clar_json_path, chosen)
+        if clar_path.exists():
+            synced = upsert_clar_table_rows(read_file(clar_path), chosen)
+            write_file(clar_path, synced)
+    return chosen
+
+
+def _find_table_indices(lines):
+    header_idx = None
+    for i, line in enumerate(lines):
+        if line.strip().startswith("|") and "ID" in line and "状态" in line:
+            header_idx = i
+            break
+    if header_idx is None:
+        return None, None, []
+    header_cells = split_md_row(lines[header_idx])
+    sep_idx = header_idx + 1 if header_idx + 1 < len(lines) else None
+    return header_idx, sep_idx, header_cells
+
+
+def add_clarifications(clar_content: str, new_items):
+    lines = clar_content.splitlines()
+    header_idx, sep_idx, header_cells = _find_table_indices(lines)
+    if header_idx is None or sep_idx is None:
+        rows, _ = parse_clarifications_table(clar_content)
+        rows = [normalize_clar_row(r) for r in rows]
+        existing_questions = set(r.get("question", "") for r in rows)
+        for item in new_items:
+            if item["question"] in existing_questions:
+                continue
+            merged = normalize_clar_row(item)
+            if not merged.get("status"):
+                merged["status"] = "待确认"
+            rows.append(merged)
+        if not rows:
+            return clar_content
+        runtime_log("[warn] clarification table format not found; rebuilt with standard columns", stderr=True)
+        table = _render_clarification_header() + "\n" + render_clarification_table_rows(rows, CLARIFY_COLUMNS)
+        trimmed = clar_content.rstrip()
+        section = "## 澄清项\n" + table + "\n"
+        if "## 澄清项" in trimmed:
+            return re.sub(r"## 澄清项[\s\S]*$", section.rstrip(), trimmed, flags=re.MULTILINE) + "\n"
+        return trimmed + "\n\n" + section
+
+    rows, _ = parse_clarifications_table(clar_content)
+    existing_questions = set(r.get("question", "") for r in rows)
+
+    def build_row(item):
+        values = []
+        for cell in header_cells:
+            key = _normalize_header(cell)
+            if key == "status":
+                values.append(escape_md_cell(item.get("status", "待确认")))
+            else:
+                values.append(escape_md_cell(item.get(key, "")))
+        return "| " + " | ".join(values) + " |"
+
+    body = []
+    for item in new_items:
+        if item["question"] in existing_questions:
+            continue
+        body.append(build_row(item))
+
+    if not body:
+        return clar_content
+
+    insert_at = sep_idx + 1
+    new_lines = lines[:insert_at] + body + lines[insert_at:]
+    return "\n".join(new_lines) + "\n"
+
+
+def persist_clarifications(path: Path, clar_content: str, dry_run: bool = False):
+    clar_path = path / DOC_FILES["clarifications"]
+    clar_json_path = path / DOC_FILES["clarifications_json"]
+    rows, _ = parse_clarifications_table(clar_content)
+    rows = [normalize_clar_row(r) for r in rows]
+    if dry_run:
+        runtime_log(f"[dry-run] would update: {clar_path}")
+        runtime_log(f"[dry-run] would update: {clar_json_path}")
+        return
+    write_file(clar_path, clar_content)
+    save_clar_rows_to_json(clar_json_path, rows)
+
+
+def next_clarify_id(rows):
+    max_id = 0
+    for r in rows:
+        m = re.match(r"C-(\d+)", r.get("id", ""))
+        if m:
+            max_id = max(max_id, int(m.group(1)))
+    return f"C-{max_id + 1:03d}"
+
+
+def ensure_runtime_context_clarifications(path: Path, context_text: str, dry_run: bool = False):
+    db_connections, file_paths, warnings = extract_context_db_connections(context_text)
+    if not db_connections:
+        return
+    clar_path = path / DOC_FILES["clarifications"]
+    clar_content = read_file(clar_path)
+    rows, _ = parse_clarifications_table(clar_content)
+    max_id = 0
+    for row in rows:
+        m = re.match(r"C-(\d+)", row.get("id", ""))
+        if m:
+            max_id = max(max_id, int(m.group(1)))
+    merged = "；".join(db_connections)
+    path_info = ""
+    if file_paths:
+        path_info = "；来源文件：" + "；".join(str(p) for p in file_paths)
+    if warnings:
+        path_info += "；处理提示：" + "；".join(warnings)
+    new_items = [{
+        "id": f"C-{max_id + 1:03d}",
+        "status": CONFIRMED_STATUS,
+        "priority": "高",
+        "impact": "数据库",
+        "doc": "analysis",
+        "section": "需求上下文采集",
+        "question": "需求已提供数据库连接信息，可用于分析阶段拉取库表结构。",
+        "answer": merged + path_info,
+        "solution": "分析阶段先连接数据库读取 schema，再更新需求覆盖矩阵与差距分析。",
+    }]
+    updated = add_clarifications(clar_content, new_items)
+    if dry_run:
+        runtime_log("[dry-run] would append runtime DB clarification")
+        return
+    persist_clarifications(path, updated, dry_run=False)
 
 
