@@ -1,4 +1,6 @@
 #!/usr/bin/env python
+from __future__ import annotations
+
 import re
 from pathlib import Path
 
@@ -56,7 +58,8 @@ def validate_split_skill(skill_dir: Path):
     if not openai_yaml.exists():
         raise RuntimeError(f"{skill_dir} missing agents/openai.yaml")
 
-    frontmatter = parse_frontmatter(skill_md.read_text(encoding="utf-8"))
+    skill_text = skill_md.read_text(encoding="utf-8")
+    frontmatter = parse_frontmatter(skill_text)
     allowed = {"name", "description"}
     keys = set(frontmatter.keys())
     if keys != allowed:
@@ -79,6 +82,31 @@ def validate_split_skill(skill_dir: Path):
     if f"${skill_name}" not in interface["default_prompt"]:
         raise RuntimeError(f"{skill_dir} default_prompt must mention ${skill_name}")
 
+    if skill_name == "spec-agent-task":
+        required_patterns = [
+            r"subagent-context\s+--name\s+<name>\s+--stage\s+<stage>\s+--json-output",
+            r"issues=0[\s\S]*?final_check",
+            r"issues>0",
+        ]
+        for pattern in required_patterns:
+            if not re.search(pattern, skill_text, flags=re.IGNORECASE):
+                raise RuntimeError(f"{skill_dir} missing required task flow pattern: {pattern}")
+
+    if skill_name == "spec-agent-chat":
+        required_patterns = [
+            r"explicit\s+`--name\s+<name>`",
+            r"subagent-init\s+--name\s+<name>",
+            r"subagent-status\s+--name\s+<name>\s+--json-output",
+            r"subagent-context\s+--name\s+<name>\s+--stage\s+<stage>\s+--json-output",
+            r"subagent-stage\s+--name\s+<name>\s+--stage\s+<stage>\s+--status\s+completed",
+            r"subagent-stage\s+--name\s+<name>\s+--stage\s+final_check\s+--status\s+completed",
+            r"subagent-stage\s+--name\s+<name>\s+--stage\s+final_check\s+--status\s+failed",
+            r"subagent-status\s+--name\s+<name>\s+--normalize",
+        ]
+        for pattern in required_patterns:
+            if not re.search(pattern, skill_text, flags=re.IGNORECASE):
+                raise RuntimeError(f"{skill_dir} missing required chat flow pattern: {pattern}")
+
 
 def main():
     skills = iter_split_skills()
@@ -92,4 +120,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

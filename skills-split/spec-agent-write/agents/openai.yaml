@@ -1,4 +1,4 @@
 interface:
   display_name: "Spec Agent Write"
   short_description: "Write docs with caller AI"
-  default_prompt: "Use $spec-agent-write to draft analysis/PRD/tech/acceptance directly with caller AI for the active requirement."
+  default_prompt: "Use $spec-agent-write to draft analysis/PRD/tech/acceptance directly with caller AI for the active requirement, and adapt clarification focus by project_mode from subagent-context."

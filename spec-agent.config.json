@@ -20,7 +20,6 @@
   "enable_auto_seed_clarifications": true,
   "max_seed_questions_per_doc": 3,
   "doc_clarify_seeds": {},
-  "max_context_file_kb": 128,
   "min_doc_bullets": {
     "analysis": 8,
     "prd": 10,
@@ -28,5 +27,12 @@
     "acceptance": 8
   },
   "dry_run_default": false,
-  "rules_copy_allowlist": ["coding.mdc", "delivery.mdc"]
+  "default_project_mode": "existing",
+  "rules_copy_allowlist": ["coding.mdc", "delivery.mdc"],
+  "metadata_lock_timeout_sec": 8.0,
+  "metadata_lock_poll_sec": 0.05,
+  "metadata_lock_stale_sec": 120.0,
+  "requirement_lock_timeout_sec": 8.0,
+  "requirement_lock_poll_sec": 0.05,
+  "requirement_lock_stale_sec": 120.0
 }

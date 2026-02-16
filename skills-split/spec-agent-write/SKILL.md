@@ -28,6 +28,10 @@ Use this skill to draft and write document content directly.
 - Fill each doc according to repository-required sections and mandatory content.
 - Ensure R-xx mapping consistency across analysis/PRD/tech/acceptance.
 - For `00-clarifications.md`, generate candidate questions using `spec-agent-clarify` candidate question policy.
+- In subagent mode, always read `subagent-context` before drafting current stage and commit completion with `subagent-stage`.
+- Treat `subagent-context.project_mode` as mandatory routing signal for clarification focus:
+  - `greenfield`: full-spectrum clarification (requirement + architecture + performance + deploy + security + stack/language/db choices + operations readiness).
+  - `existing`: focus on requirement/technical impact and changed surface; cross-cutting topics are conditional (only when changed by requirement/solution).
 
 ## Hard constraints
 

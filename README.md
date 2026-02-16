@@ -6,7 +6,8 @@
 - `02-prd.md`（PRD）
 - `03-tech.md`（技术方案）
 - `04-acceptance.md`（验收清单）
-- `00-clarifications.md/.json`（澄清文档）
+- `00-clarifications.md`（澄清文档真源）
+- `00-clarifications.json`（机器可读镜像）
 
 文档默认生成在：
 
@@ -40,12 +41,50 @@
 - 文档正文由调用端 AI 直接写入文件。
 - 脚本主要负责状态与校验（记忆快照同步、初始化、澄清检查、最终检查）。
 
+## Subagents 模式（按文档阶段）
+
+`spec-agent` 现在支持按阶段的子代理编排状态，适合 `orchestrator + analysis/prd/tech/acceptance/final_check` 分工（注意：命令仍是 `final-check`）：
+
+1. 初始化阶段状态：
+```bash
+python scripts/spec_agent.py subagent-init --name <requirement_name>
+```
+   - 如需明确澄清策略场景，初始化时可显式指定：
+```bash
+python scripts/spec_agent.py init --name <requirement_name> --title "<title>" --desc "<raw_requirement>" --state-only --project-mode <greenfield|existing>
+```
+2. 获取某阶段上下文（依赖、澄清、全局记忆、目标文件）：
+```bash
+python scripts/spec_agent.py subagent-context --name <requirement_name> --stage analysis
+```
+   - 返回固定交接字段：`target_sections`、`must_keep_sections`、`reopen_reason`
+   - 也会返回澄清策略字段：`project_mode`、`clarification_focus`
+3. 子代理完成阶段后回写状态（会校验依赖与签名）：
+```bash
+python scripts/spec_agent.py subagent-stage --name <requirement_name> --stage analysis --status completed --agent analysis-agent
+```
+4. 查看全阶段状态与是否过期：
+```bash
+python scripts/spec_agent.py subagent-status --name <requirement_name>
+```
+   - 默认只读；若要把 `stale_stages` 落盘回退为 `pending`，显式使用：
+```bash
+python scripts/spec_agent.py subagent-status --name <requirement_name> --normalize
+```
+
+说明：
+- `subagent-stage --status completed` 对 `prd/tech/acceptance` 会校验 `DEPENDENCY-SIGNATURE`。
+- 上游阶段被重开或内容漂移时，下游阶段会自动回退到 `pending`。
+- `subagent-stage --stage final_check --status failed` 会自动把问题映射到最早受影响阶段并回退下游。
+- `final-check` 产生结构化 `issue code`，用于稳定回退映射（避免依赖自然语言关键词）。
+
 ## 在 AI IDE 中使用（Cursor / Claude Code）
 
 直接这样用：
 
 - `/spec-agent-task 现在产品提了一个新需求，需求如下：……`
 - 如果有数据库信息，也直接追加在同一句里（例如连接地址、库名、只读账号等）。
+- 如果你希望明确澄清策略场景，也可直接说明：`这是从零新建项目` 或 `这是在现有项目上的新增需求`。
 
 ## 3 个最常见场景（可直接复制）
 
@@ -80,11 +119,12 @@ AI 会按流程自动做这几件事：
   - 验收文档必须基于前三份文档的最新版本
   - 四份文档在新建和更新时，都必须结合：
     - 全局记忆文档 `spec/00-global-memory.md`
-    - 已确认澄清项 `00-clarifications.md/.json`
+    - 已确认澄清项（以 `00-clarifications.md` 为准，`00-clarifications.json` 仅为镜像）
   - `prd/tech/acceptance` 必须包含依赖签名区块：
     - `<!-- DEPENDENCY-SIGNATURE:START --> ... <!-- DEPENDENCY-SIGNATURE:END -->`
     - 签名中记录其上游文档哈希（例如 `analysis/prd/tech`）
   - `final-check` 会基于文档内容哈希（记录在 `metadata.json` 的 `doc_dependency_state`）检查下游是否使用了上游最新内容
+  - `final-check` 会校验 `R -> PRD -> TECH -> A-xxx` 的链路追踪完整性，确保每个 `R-xx` 都有验收映射
 
 ### 用户补充澄清后如何触发更新
 
@@ -130,6 +170,7 @@ AI 会按流程自动做这几件事：
 - 本次识别（澄清/记忆）
 - 写入结果
 - 文档更新（按 analysis -> prd -> tech -> acceptance）
+- 阶段状态（subagent current_stage / 回退阶段）
 - 变更摘要（按文档 diff）
 - 检查结果与下一步建议
 
@@ -137,6 +178,7 @@ AI 会按流程自动做这几件事：
 
 `/spec-agent-task 先做预览，不要落盘；确认后再正式写入。`  
 如果你需要对接外部流程，也可以直接在同一句里要求 AI 返回结构化结果（如 JSON）。
+当脚本命令使用 `--json-output` 时，成功与失败都会输出 JSON（失败时含 `error` 且 `ok=false`）。
 
 ## 澄清文档如何填写
 
@@ -156,7 +198,7 @@ AI 会按流程自动做这几件事：
 
 - `归属文档` 仅允许：`analysis/prd/tech/acceptance/global`
 - `状态` 仅允许配置中的状态（默认 `待确认/已确认`）
-- `00-clarifications.md` 与 `00-clarifications.json` 会自动同步
+- `00-clarifications.md` 是唯一真源；`00-clarifications.json` 由脚本自动同步为镜像
 
 ## 目录结构示例
 
@@ -192,6 +234,7 @@ python scripts/regression_all.py
 说明：
 - `regression_edge_cases.py` 会临时覆盖配置用于负向测试，需顺序执行。
 - `regression_split_skill_contract.py` 校验 `skills-split/` 下所有拆分 skill 的契约完整性。
+- `final-check` 对写回澄清采取“收敛策略”：仅把需要用户决策的澄清型问题写入 `00-clarifications.*`，文档质量类问题仅在检查结果中报告。
 
 ## 配置
 
@@ -202,9 +245,12 @@ python scripts/regression_all.py
 - `spec_dir`
 - `date_format`
 - `dry_run_default`
+- `default_project_mode`（`greenfield` / `existing`）
 - `clarify_statuses`
 - `clarify_confirmed_status`
 - `rules_copy_allowlist`
+- `metadata_lock_timeout_sec` / `metadata_lock_poll_sec` / `metadata_lock_stale_sec`
+- `requirement_lock_timeout_sec` / `requirement_lock_poll_sec` / `requirement_lock_stale_sec`
 
 ## 故障排查
 

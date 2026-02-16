@@ -1,14 +1,18 @@
 ﻿#!/usr/bin/env python
+from __future__ import annotations
+
 import datetime as dt
 import hashlib
 import json
 import re
+import shutil
 import sqlite3
 import subprocess
+import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-PY = ["python", str(ROOT / "scripts" / "spec_agent.py")]
+PY = [sys.executable, str(ROOT / "scripts" / "spec_agent.py")]
 REQ = "regression-smoke"
 
 
@@ -47,10 +51,26 @@ def dependency_signature_block(pairs: dict[str, str]) -> str:
     return "\n".join(lines)
 
 
+def clarification_row_count(clar_path: Path) -> int:
+    if not clar_path.exists():
+        return 0
+    text = clar_path.read_text(encoding="utf-8-sig")
+    return len(re.findall(r"^\|\s*C-\d+\s*\|", text, flags=re.MULTILINE))
+
+
+def file_hash(path: Path) -> str:
+    return hashlib.md5(path.read_bytes()).hexdigest()
+
+
+def remove_dir(path: Path):
+    if path.exists():
+        shutil.rmtree(path, ignore_errors=True)
+
+
 def main():
     date = dt.date.today().strftime("%Y-%m-%d")
 
-    # Prepare sqlite test db + connection file
+    # Prepare sqlite test db
     db = ROOT / "tmp_demo.sqlite"
     if db.exists():
         db.unlink()
@@ -61,12 +81,15 @@ def main():
     con.commit()
     con.close()
 
-    env_file = ROOT / "tmp_db_conn.env"
-    env_file.write_text("DB_URL=sqlite:///tmp_demo.sqlite\n", encoding="utf-8")
-
     req_dir = ROOT / "spec" / date / REQ
-    if req_dir.exists():
-        subprocess.run(["cmd", "/c", "rd", "/s", "/q", str(req_dir)], cwd=str(ROOT), check=False)
+    remove_dir(req_dir)
+    db_connections_json = json.dumps([
+        {
+            "db_type": "sqlite",
+            "connection": "sqlite:///tmp_demo.sqlite",
+            "source": "caller-ai",
+        }
+    ], ensure_ascii=False)
 
     run([
         "init",
@@ -76,12 +99,46 @@ def main():
         "回归冒烟",
         "--desc",
         "需求A；需求B",
-        "--clarify",
-        "数据库连接文件：tmp_db_conn.env",
+        "--db-connections-json",
+        db_connections_json,
+        "--project-mode",
+        "greenfield",
         "--state-only",
         "--date",
         date,
     ])
+    meta = json.loads((req_dir / "metadata.json").read_text(encoding="utf-8-sig"))
+    if str(meta.get("project_mode", "")) != "greenfield":
+        raise RuntimeError(f"expected metadata project_mode=greenfield after init: {meta}")
+
+    run(["subagent-init", "--name", REQ])
+    blocked = run(["subagent-stage", "--name", REQ, "--stage", "prd", "--status", "completed"], check=False)
+    if blocked.returncode == 0:
+        raise RuntimeError("expected subagent-stage prd completion to be blocked before analysis stage")
+    clar_md_path = req_dir / "00-clarifications.md"
+    clar_json_path = req_dir / "00-clarifications.json"
+    clar_md = clar_md_path.read_text(encoding="utf-8-sig")
+    clar_md = clar_md.replace("（示例）请确认需求范围的最终边界", "（示例）请确认需求范围的最终边界-MD-ONLY")
+    clar_md_path.write_text(clar_md, encoding="utf-8")
+    clar_json_before = file_hash(clar_json_path)
+    ctx_raw = run(["--json-output", "subagent-context", "--name", REQ, "--stage", "analysis"]).stdout.strip()
+    clar_json_after = file_hash(clar_json_path)
+    if clar_json_before != clar_json_after:
+        raise RuntimeError("subagent-context should not sync/update clarification files")
+    ctx_payload = json.loads(ctx_raw)
+    if ctx_payload.get("stage") != "analysis":
+        raise RuntimeError(f"unexpected subagent-context payload: {ctx_raw}")
+    if not ctx_payload.get("target_sections"):
+        raise RuntimeError(f"subagent-context should include target_sections: {ctx_raw}")
+    if not ctx_payload.get("must_keep_sections"):
+        raise RuntimeError(f"subagent-context should include must_keep_sections: {ctx_raw}")
+    if "reopen_reason" not in ctx_payload:
+        raise RuntimeError(f"subagent-context should include reopen_reason: {ctx_raw}")
+    if ctx_payload.get("project_mode") != "greenfield":
+        raise RuntimeError(f"subagent-context should include project_mode=greenfield: {ctx_raw}")
+    focus = ctx_payload.get("clarification_focus", {}) if isinstance(ctx_payload.get("clarification_focus", {}), dict) else {}
+    if focus.get("mode") != "greenfield":
+        raise RuntimeError(f"subagent-context should include greenfield clarification_focus: {ctx_raw}")
 
     # Legacy generation commands should be unavailable from CLI.
     legacy = run(["write-analysis", "--name", REQ], check=False)
@@ -334,9 +391,16 @@ validate -> execute -> persist -> audit
         flags=re.MULTILINE,
     )
     (req_dir / "02-prd.md").write_text(prd_no_clar, encoding="utf-8")
+    clar_count_before = clarification_row_count(req_dir / "00-clarifications.md")
     bad_out = run(["final-check", "--name", REQ, "--dry-run"], check=True).stdout
     if issue_count(bad_out) <= 0:
         raise RuntimeError("expected final-check to fail when clarification block is missing")
+    bad_out_write = run(["final-check", "--name", REQ], check=True).stdout
+    if issue_count(bad_out_write) <= 0:
+        raise RuntimeError("expected final-check to report issues when missing clarification block")
+    clar_count_after = clarification_row_count(req_dir / "00-clarifications.md")
+    if clar_count_after != clar_count_before:
+        raise RuntimeError("doc-quality issues should not auto-append clarification rows")
     (req_dir / "02-prd.md").write_text(prd, encoding="utf-8")
 
     # Negative check 2: stale dependency signature should fail final-check.
@@ -351,6 +415,57 @@ validate -> execute -> persist -> audit
     if "final-check issues: 0" not in out:
         raise RuntimeError(f"unexpected final-check result: {out}")
 
+    run(["subagent-stage", "--name", REQ, "--stage", "analysis", "--status", "completed", "--agent", "analysis-agent"])
+    run(["subagent-stage", "--name", REQ, "--stage", "prd", "--status", "completed", "--agent", "prd-agent"])
+    run(["subagent-stage", "--name", REQ, "--stage", "tech", "--status", "completed", "--agent", "tech-agent"])
+    run(["subagent-stage", "--name", REQ, "--stage", "acceptance", "--status", "completed", "--agent", "acceptance-agent"])
+    run(["subagent-stage", "--name", REQ, "--stage", "final_check", "--status", "completed", "--agent", "final-check-agent"])
+    status_payload = json.loads(run(["--json-output", "subagent-status", "--name", REQ]).stdout.strip())
+    if status_payload.get("current_stage") != "final_check":
+        raise RuntimeError(f"unexpected subagent current_stage: {status_payload}")
+    if status_payload.get("stale_stages"):
+        raise RuntimeError(f"unexpected stale stages after ordered completion: {status_payload}")
+
+    # Trigger final-check failure and verify auto reopen mapping to earliest impacted stage.
+    prd_broken = prd.replace("| R-02 | 需求B | 明确异常处理与提示 |\n", "")
+    (req_dir / "02-prd.md").write_text(prd_broken, encoding="utf-8")
+    stale_preview = json.loads(run(["--json-output", "subagent-status", "--name", REQ]).stdout.strip())
+    if "prd" not in stale_preview.get("stale_stages", []):
+        raise RuntimeError(f"expected stale preview to include prd without normalization: {stale_preview}")
+    if stale_preview.get("stages", {}).get("prd", {}).get("status") != "completed":
+        raise RuntimeError(f"subagent-status without --normalize should be read-only: {stale_preview}")
+    normalized_preview = json.loads(run(["--json-output", "subagent-status", "--name", REQ, "--normalize"]).stdout.strip())
+    if normalized_preview.get("stages", {}).get("prd", {}).get("status") != "pending":
+        raise RuntimeError(f"subagent-status --normalize should persist pending for stale stages: {normalized_preview}")
+    run([
+        "subagent-stage",
+        "--name",
+        REQ,
+        "--stage",
+        "final_check",
+        "--status",
+        "failed",
+        "--agent",
+        "final-check-agent",
+        "--notes",
+        "simulate final-check fail",
+    ])
+    reopened_status = json.loads(run(["--json-output", "subagent-status", "--name", REQ]).stdout.strip())
+    if reopened_status.get("current_stage") not in {"analysis", "prd", "tech", "acceptance"}:
+        raise RuntimeError(f"expected current_stage to reopen into doc stages: {reopened_status}")
+    last_reopen = reopened_status.get("last_reopen", {}) if isinstance(reopened_status.get("last_reopen", {}), dict) else {}
+    reopen_stage = str(last_reopen.get("stage", "")).strip()
+    if reopen_stage not in {"analysis", "prd", "tech", "acceptance"}:
+        raise RuntimeError(f"expected auto-mapped reopen stage from final_check: {reopened_status}")
+    if str(last_reopen.get("source", "")) != "final_check":
+        raise RuntimeError(f"expected reopen source=final_check: {reopened_status}")
+    mapped_issues = last_reopen.get("issues", []) if isinstance(last_reopen.get("issues", []), list) else []
+    if mapped_issues and not all(str(item.get("code", "")).strip() for item in mapped_issues if isinstance(item, dict)):
+        raise RuntimeError(f"expected structured issue codes in last_reopen mapping: {reopened_status}")
+    reopen_ctx = json.loads(run(["--json-output", "subagent-context", "--name", REQ, "--stage", reopen_stage]).stdout.strip())
+    if not reopen_ctx.get("reopen_reason", ""):
+        raise RuntimeError(f"expected reopen_reason for mapped stage context: {reopen_ctx}")
+
     # check-clarifications strict should be executable in AI-first contract.
     strict_out = run(["check-clarifications", "--name", REQ, "--strict", "--json-output"]).stdout.strip()
     payload = json.loads(strict_out)
@@ -358,9 +473,7 @@ validate -> execute -> persist -> audit
         raise RuntimeError(f"unexpected check-clarifications output: {strict_out}")
 
     # cleanup smoke artifacts
-    subprocess.run(["cmd", "/c", "rd", "/s", "/q", str(req_dir)], cwd=str(ROOT), check=False)
-    if env_file.exists():
-        env_file.unlink()
+    remove_dir(req_dir)
     if db.exists():
         db.unlink()
 

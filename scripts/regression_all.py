@@ -1,12 +1,13 @@
 #!/usr/bin/env python
 import subprocess
+import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 
 
 def run(script: str):
-    p = subprocess.run(["python", str(ROOT / "scripts" / script)], cwd=str(ROOT), capture_output=True, text=True)
+    p = subprocess.run([sys.executable, str(ROOT / "scripts" / script)], cwd=str(ROOT), capture_output=True, text=True)
     if p.returncode != 0:
         raise RuntimeError(f"{script} failed\nstdout:\n{p.stdout}\nstderr:\n{p.stderr}")
     print(p.stdout.strip())

@@ -1,4 +1,4 @@
 interface:
   display_name: "Spec Agent Clarify"
   short_description: "Clarification-driven rewrite"
-  default_prompt: "Use $spec-agent-clarify to enforce clarification closure and rewrite impacted docs directly with caller AI."
+  default_prompt: "Use $spec-agent-clarify to enforce clarification closure and rewrite impacted docs directly with caller AI, applying scenario-aware candidate focus by project_mode (greenfield vs existing)."

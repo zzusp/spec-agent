@@ -27,26 +27,35 @@ Trigger split skills when user intent includes any of:
    - `acceptance` must incorporate `analysis` + `prd` + `tech`
 4. All four docs (`analysis/prd/tech/acceptance`) must always incorporate:
    - global memory (`spec/00-global-memory.md`)
-   - confirmed clarifications (`00-clarifications.md/.json`)
+   - confirmed clarifications (`00-clarifications.md` as source of truth, `.json` as mirror)
    - for `prd/tech/acceptance`, include dependency signatures:
      - `<!-- DEPENDENCY-SIGNATURE:START --> ... <!-- DEPENDENCY-SIGNATURE:END -->`
      - signature values must match current upstream content hashes
 5. Scripts are used for state/check gates (`sync-memory`, `init --state-only`, `check-clarifications`, `final-check`).
+   - When using stage subagents, also use:
+     - `subagent-init`
+     - `subagent-context`
+     - `subagent-stage`
+     - `subagent-status`
 6. Repeat clarification loop until checks pass.
 
 ## Command contract (single source of truth)
 
 | Command | Input | Output | Side effects |
 |---|---|---|---|
-| `init` | one of `--desc/--desc-json/--desc-file` (must carry user requirement content), optional `--name`, optional `--state-only` | requirement skeleton/state + metadata | create docs/state, set active |
+| `init` | one of `--desc/--desc-json/--desc-file` (must carry user requirement content), optional `--name`, optional `--state-only`, optional `--project-mode` (`auto/greenfield/existing`) | requirement skeleton/state + metadata | create docs/state, set active |
 | `scan` | target requirement | module candidates | update analysis scan block |
 | `inspect-db` | target requirement | db schema summary | update analysis db-schema block |
 | `sync-memory` | target requirement (or active) | memory hash synced to metadata | update metadata memory snapshot |
 | `check-clarifications` | target requirement, optional `--strict` | unresolved clarification count | no write (strict mode returns non-zero when pending exists) |
-| `final-check` | target requirement | issue count | append issues to clarifications |
+| `final-check` | target requirement | issue count | append clarification-relevant issues to clarifications (non-clarification quality issues only reported) |
 | `set-active` | `--name` or `--path` | active pointer | update `spec/.active` |
 | `list` | none | requirement list | no write |
 | `copy-rules` | optional `--dest` | copy result | write `.cursor/rules` |
+| `subagent-init` | target requirement, optional `--reset` | stage-state initialized | update metadata `subagents` section |
+| `subagent-context` | target requirement + `--stage` | stage input context (`target_sections`/`must_keep_sections`/`reopen_reason` + `project_mode`/`clarification_focus`) | no write (except one-time state normalization) |
+| `subagent-stage` | target requirement + `--stage` + `--status` | stage update result | update stage status / hashes; may downgrade downstream to pending; for `final_check failed` auto-map issues to reopen stage |
+| `subagent-status` | target requirement, optional `--normalize` | stage matrix + stale stages | default no write; with `--normalize` writes stale stages back to `pending` |
 
 ## Multi-requirement rules
 
@@ -67,6 +76,7 @@ Optional default:
 ## Clarification policy
 
 - Unclear points must be captured in `00-clarifications.md`.
+- `00-clarifications.md` is the single source of truth; `00-clarifications.json` is a machine-readable mirror.
 - Only configured statuses are valid.
 - Confirmed status is defined by config key: `clarify_confirmed_status`.
 

@@ -27,4 +27,10 @@ python scripts/spec_agent.py final-check
 
 - Detect missing required docs.
 - Validate placeholders, structure, and R-xx consistency.
-- Append discovered issues into clarifications for next iteration.
+- Convergence-first writeback:
+  - append only clarification-relevant issues (need user decision) into clarifications.
+  - for pure doc-quality issues, report and fix in docs directly; do not expand clarification list.
+- In subagent mode, after `issues=0`, commit stage state:
+```bash
+python scripts/spec_agent.py subagent-stage --name <name> --stage final_check --status completed --agent final-check-agent
+```

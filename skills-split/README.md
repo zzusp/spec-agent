@@ -5,6 +5,11 @@ Split-skill prototype for the same `spec-agent` workspace.
 Default mode in this folder is AI-first:
 - caller AI writes document content directly
 - scripts are used for state operations and quality gates
+- stage-based subagent orchestration is supported via `subagent-init/context/stage/status`
+  - `subagent-context` includes fixed handoff fields: `target_sections` / `must_keep_sections` / `reopen_reason`
+  - `subagent-context` also includes clarification routing fields: `project_mode` / `clarification_focus`
+  - `subagent-status` is read-only by default; use `--normalize` to persist stale->pending updates
+  - `subagent-stage --stage final_check --status failed` auto-maps reopen stage from check issues
 - every split skill must read `spec/00-global-memory.md` before execution
 - clarification candidates must follow prioritized, answer-constrained policy in `spec-agent-clarify`
 - clarification loop uses round-based closure with per-round cap: at most 10 new candidates
@@ -38,6 +43,7 @@ Default mode in this folder is AI-first:
 - 本次识别（澄清/记忆）
 - 写入结果
 - 文档更新
+- 阶段状态（subagent current_stage / reopen）
 - 变更摘要（按文档 diff）
 - 检查结果
 

@@ -42,6 +42,17 @@ Exclude:
 - already answered items
 - trivial style preferences
 - plan-level execution details unless correctness is blocked
+- pure document-quality/editorial fixes that can be resolved directly by updating docs (do not turn these into user clarifications)
+
+### Scenario-aware focus (must)
+
+Use requirement `project_mode` from metadata/context:
+- `greenfield`:
+  - default to full coverage across requirement, architecture, data, performance, deployment, security, compliance, operations readiness.
+  - selected questions should proactively close baseline design decisions, not only immediate feature behavior.
+- `existing`:
+  - prioritize requirement behavior, impacted modules/interfaces/data paths, migration/rollback and acceptance consistency.
+  - for performance/deployment/security/framework/language/database selection, ask only when requirement or proposed solution introduces explicit change/risk.
 
 ### Prioritization and coverage
 
@@ -98,6 +109,9 @@ Run clarification in rounds. In each round:
 
 - At most `10` new clarification candidates can be added in one round.
 - If detected candidates exceed 10, keep top 10 by `(impact * uncertainty)` and defer the rest to next round.
+- Convergence-first budget:
+  - `existing` mode: prefer `<= 5` new candidates in one round.
+  - `greenfield` mode: prefer `<= 8` new candidates in one round.
 
 ### Candidate selection strategy
 
