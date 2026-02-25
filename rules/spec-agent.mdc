@@ -1,0 +1,30 @@
+---
+description: 使用 spec-agent 撰写/更新需求文档时的文档顺序、修订记录与澄清约定
+globs: spec/**/0[0-4]-*.md
+alwaysApply: false
+---
+# 使用 Spec-agent 时的文档约定
+
+本规则仅适用于 spec-agent 的约定文档（`00-clarifications.md`、`01-analysis.md`、`02-prd.md`、`03-tech.md`、`04-acceptance.md` 及 `spec/00-global-memory.md`）。spec 目录下其他工具生成的文档不适用。
+
+当你通过 spec-agent 插件撰写或更新上述需求文档时，请遵守以下约定。
+
+## 文档顺序与依赖
+
+- 文档撰写顺序固定：**analysis** → **prd** → **tech** → **acceptance**；下游文档必须基于上游内容撰写，不得跳步或颠倒。
+- 撰写前纳入：全局记忆（如 `spec/00-global-memory.md`）、已确认的澄清（`00-clarifications.md` 中状态为已确认的项）。
+
+## 修订记录与签名
+
+- 五份文档（analysis / PRD / tech / acceptance / clarifications）均需包含 **修订记录** 表（修订日期 yyyy-MM-dd、修订人、修订内容摘要）；每次修改任一份文档时，在该文档的修订记录表中追加一行。
+- PRD / tech / acceptance 中必须保留 `<!-- DEPENDENCY-SIGNATURE:START --> ... <!-- DEPENDENCY-SIGNATURE:END -->` 区块，且签名与当前上游内容一致（由脚本或流程更新，勿手改破坏）。
+
+## 澄清为真源
+
+- 不确定或待产品确认的点必须写入 **00-clarifications.md**；该文件为澄清的真源，`00-clarifications.json` 为机器可读镜像，勿单独手改 json 导致与 md 不一致。
+- 应用已确认澄清到正文时：结合澄清内容重设计/调整整份文档，并整体检查矛盾或更优实现；仍需用户确认的项继续作为新行追加到澄清文档。
+
+## 多需求与命令
+
+- 存在多个需求目录时，优先用 `--name` 或 `--path` 显式指定目标需求；若未指定，以 `spec/.active` 指向的为当前需求。
+- 撰写或大量修改文档后，按插件说明执行 `sync-memory`、必要时执行 `final-check`，并在未通过时根据结果修订文档直至通过。
