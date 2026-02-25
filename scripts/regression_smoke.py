@@ -1,4 +1,4 @@
-﻿#!/usr/bin/env python
+#!/usr/bin/env python
 from __future__ import annotations
 
 import datetime as dt
@@ -196,6 +196,11 @@ def main():
 <!-- CLARIFICATIONS:START -->
 - [C-002] 需求已提供数据库连接信息，可用于分析阶段拉取库表结构。
 <!-- CLARIFICATIONS:END -->
+
+## 修订记录
+| 修订日期 | 修订人 | 修订内容摘要 |
+|---|:---:|---|
+| 2025-02-25 | 回归测试 | 冒烟用例构造 |
 """
     (req_dir / "01-analysis.md").write_text(analysis, encoding="utf-8")
 
@@ -246,6 +251,11 @@ def main():
 <!-- CLARIFICATIONS:START -->
 - [C-002] 需求已提供数据库连接信息，可用于分析阶段拉取库表结构。
 <!-- CLARIFICATIONS:END -->
+
+## 修订记录
+| 修订日期 | 修订人 | 修订内容摘要 |
+|---|:---:|---|
+| 2025-02-25 | 回归测试 | 冒烟用例构造 |
 
 {dependency_signature_block({"analysis": analysis_hash})}
 """
@@ -305,6 +315,11 @@ validate -> execute -> persist -> audit
 - [C-002] 需求已提供数据库连接信息，可用于分析阶段拉取库表结构。
 <!-- CLARIFICATIONS:END -->
 
+## 修订记录
+| 修订日期 | 修订人 | 修订内容摘要 |
+|---|:---:|---|
+| 2025-02-25 | 回归测试 | 冒烟用例构造 |
+
 {dependency_signature_block({"analysis": analysis_hash, "prd": prd_hash})}
 """
     tech_hash = content_hash(tech)
@@ -363,6 +378,11 @@ validate -> execute -> persist -> audit
 <!-- CLARIFICATIONS:START -->
 - [C-002] 需求已提供数据库连接信息，可用于分析阶段拉取库表结构。
 <!-- CLARIFICATIONS:END -->
+
+## 修订记录
+| 修订日期 | 修订人 | 修订内容摘要 |
+|---|:---:|---|
+| 2025-02-25 | 回归测试 | 冒烟用例构造 |
 
 {dependency_signature_block({"analysis": analysis_hash, "prd": prd_hash, "tech": tech_hash})}
 """
@@ -425,6 +445,39 @@ validate -> execute -> persist -> audit
         raise RuntimeError(f"unexpected subagent current_stage: {status_payload}")
     if status_payload.get("stale_stages"):
         raise RuntimeError(f"unexpected stale stages after ordered completion: {status_payload}")
+
+    # Clarify-flow: 更新澄清内容后 → 门禁通过 → final-check 通过（验证 spec-agent-clarify 的关联触发路径）
+    clar_md_path = req_dir / "00-clarifications.md"
+    clar_md = clar_md_path.read_text(encoding="utf-8-sig")
+    if "待确认" in clar_md:
+        clar_md = clar_md.replace("| 待确认 |", "| 已确认 |")
+        clar_md_path.write_text(clar_md, encoding="utf-8")
+    strict_out = run(["check-clarifications", "--name", REQ, "--strict", "--json-output"]).stdout.strip()
+    payload = json.loads(strict_out)
+    if int(payload.get("pending", -1)) != 0:
+        raise RuntimeError(f"expected pending=0 after confirming all clarifications: {payload}")
+    out2 = run(["final-check", "--name", REQ]).stdout
+    if "final-check issues: 0" not in out2:
+        raise RuntimeError(f"expected final-check ok after clarify gate pass: {out2}")
+
+    # spec-agent-chat 校验：澄清内容（已确认）写入后，四份文档必须更新（澄清补充区块引用 C-xxx），否则 final-check 不通过
+    for doc_key, filename in [("analysis", "01-analysis.md"), ("prd", "02-prd.md"), ("tech", "03-tech.md"), ("acceptance", "04-acceptance.md")]:
+        doc_path = req_dir / filename
+        content = doc_path.read_text(encoding="utf-8")
+        if re.search(r"\bC-\d+\b", content):
+            content_no_c = re.sub(r"\bC-\d+\b", "C-X-REMOVED", content)
+            doc_path.write_text(content_no_c, encoding="utf-8")
+    out_no_ref = run(["final-check", "--name", REQ, "--dry-run"], check=True).stdout
+    if issue_count(out_no_ref) <= 0:
+        raise RuntimeError("expected final-check to fail when docs lack C-xxx reference (spec-agent-chat: other files must be updated)")
+    for doc_key, filename in [("analysis", "01-analysis.md"), ("prd", "02-prd.md"), ("tech", "03-tech.md"), ("acceptance", "04-acceptance.md")]:
+        doc_path = req_dir / filename
+        content = doc_path.read_text(encoding="utf-8")
+        content = content.replace("C-X-REMOVED", "C-002")
+        doc_path.write_text(content, encoding="utf-8")
+    out_restored = run(["final-check", "--name", REQ]).stdout
+    if "final-check issues: 0" not in out_restored:
+        raise RuntimeError(f"expected final-check ok after restoring C-xxx in docs: {out_restored}")
 
     # Trigger final-check failure and verify auto reopen mapping to earliest impacted stage.
     prd_broken = prd.replace("| R-02 | 需求B | 明确异常处理与提示 |\n", "")

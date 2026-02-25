@@ -1,0 +1,16 @@
+{
+  "name": "spec-agent",
+  "displayName": "Spec Agent",
+  "version": "1.0.0",
+  "description": "Turn raw requirements into a maintainable spec set: analysis, PRD, tech design, acceptance, and clarifications. AI-first workflow with stage subagents, dependency signatures, and clarification loop.",
+  "author": { "name": "Spec Agent" },
+  "license": "MIT",
+  "keywords": ["spec-agent", "prd", "requirements", "analysis", "acceptance", "clarifications"],
+  "category": "developer-tools",
+  "tags": ["requirements", "documentation", "workflow"],
+  "skills": "./skills/",
+  "agents": "./agents/",
+  "rules": "./rules/",
+  "commands": "./commands/",
+  "hooks": "./hooks/hooks.json"
+}

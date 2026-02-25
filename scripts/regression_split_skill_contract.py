@@ -5,7 +5,8 @@ import re
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-SPLIT_ROOT = ROOT / "skills-split"
+# Cursor Plugin layout: skills live under skills/ (see .cursor-plugin/plugin.json)
+SKILLS_ROOT = ROOT / "skills"
 
 
 def parse_frontmatter(text: str) -> dict[str, str]:
@@ -25,38 +26,17 @@ def parse_frontmatter(text: str) -> dict[str, str]:
     return out
 
 
-def parse_openai_yaml_interface(text: str) -> dict[str, str]:
-    interface_match = re.search(r"(?ms)^interface:\r?\n(.*?)(?:^\S|\Z)", text)
-    if not interface_match:
-        raise RuntimeError("agents/openai.yaml missing interface block")
-    block = interface_match.group(1)
-    out = {}
-    for raw_line in block.splitlines():
-        if not raw_line.strip():
-            continue
-        if not raw_line.startswith("  "):
-            continue
-        line = raw_line.strip()
-        if ":" not in line:
-            continue
-        key, value = line.split(":", 1)
-        out[key.strip()] = value.strip().strip('"')
-    return out
-
-
 def iter_split_skills() -> list[Path]:
-    if not SPLIT_ROOT.exists():
+    if not SKILLS_ROOT.exists():
         return []
-    return sorted([p for p in SPLIT_ROOT.iterdir() if p.is_dir()])
+    return sorted([p for p in SKILLS_ROOT.iterdir() if p.is_dir()])
 
 
 def validate_split_skill(skill_dir: Path):
+    """Validate a plugin skill under skills/<name>/: only SKILL.md with frontmatter and content patterns."""
     skill_md = skill_dir / "SKILL.md"
-    openai_yaml = skill_dir / "agents" / "openai.yaml"
     if not skill_md.exists():
         raise RuntimeError(f"{skill_dir} missing SKILL.md")
-    if not openai_yaml.exists():
-        raise RuntimeError(f"{skill_dir} missing agents/openai.yaml")
 
     skill_text = skill_md.read_text(encoding="utf-8")
     frontmatter = parse_frontmatter(skill_text)
@@ -73,14 +53,6 @@ def validate_split_skill(skill_dir: Path):
     description = frontmatter.get("description", "")
     if "Use when" not in description:
         raise RuntimeError(f"{skill_dir} description must include trigger guidance using 'Use when ...'")
-
-    interface = parse_openai_yaml_interface(openai_yaml.read_text(encoding="utf-8"))
-    required = {"display_name", "short_description", "default_prompt"}
-    missing = [k for k in required if not interface.get(k)]
-    if missing:
-        raise RuntimeError(f"{skill_dir} openai.yaml missing required interface fields: {missing}")
-    if f"${skill_name}" not in interface["default_prompt"]:
-        raise RuntimeError(f"{skill_dir} default_prompt must mention ${skill_name}")
 
     if skill_name == "spec-agent-task":
         required_patterns = [
@@ -108,14 +80,44 @@ def validate_split_skill(skill_dir: Path):
                 raise RuntimeError(f"{skill_dir} missing required chat flow pattern: {pattern}")
 
 
+# Pattern: spec-agent-<word> (skill name), e.g. spec-agent-task, spec-agent-clarify
+SKILL_REF_PATTERN = re.compile(r"spec-agent-[a-z0-9-]+", re.IGNORECASE)
+
+
+def collect_skill_references(skill_text: str) -> set[str]:
+    """Extract all spec-agent-* skill names referenced in SKILL.md body (Child skills, policy refs, etc.)."""
+    refs = set()
+    for m in SKILL_REF_PATTERN.finditer(skill_text):
+        refs.add(m.group(0).lower())
+    return refs
+
+
+def validate_skill_associations(skill_dirs: list[Path], known_names: set[str]) -> None:
+    """Ensure every skill referenced in any SKILL.md exists under skills/ (association/trigger consistency)."""
+    for skill_dir in skill_dirs:
+        skill_md = skill_dir / "SKILL.md"
+        if not skill_md.exists():
+            continue
+        text = skill_md.read_text(encoding="utf-8")
+        refs = collect_skill_references(text)
+        missing = refs - known_names
+        if missing:
+            raise RuntimeError(
+                f"{skill_dir.name} references non-existent skill(s): {sorted(missing)}. "
+                f"Known: {sorted(known_names)}."
+            )
+
+
 def main():
     skills = iter_split_skills()
     if not skills:
-        print("regression split skill contract: skipped (skills-split not found)")
+        print("regression split skill contract: skipped (skills/ not found)")
         return
+    known_names = {d.name for d in skills}
     for skill_dir in skills:
         validate_split_skill(skill_dir)
-    print(f"regression split skill contract: ok ({len(skills)} skills)")
+    validate_skill_associations(skills, known_names)
+    print(f"regression split skill contract: ok ({len(skills)} skills, associations valid)")
 
 
 if __name__ == "__main__":

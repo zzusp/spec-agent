@@ -13,10 +13,48 @@
 
 - `spec/YYYY-MM-DD/<requirement_name>/`
 
-## 默认工作模式（split-only）
+## Installation (Cursor Plugin)
 
-当前仅使用 `skills-split/` 技能体系。
-根目录旧主技能入口（`SKILL.md`、`agents/openai.yaml`）已移除，这是有意的架构收敛。
+在 Cursor 中通过插件方式使用（与 [Cursor plugins](https://github.com/cursor/plugins) 规范一致）：
+
+```bash
+/add-plugin spec-agent
+```
+
+或从本仓库路径添加插件。插件清单见 `.cursor-plugin/plugin.json`，技能目录为 `skills/`，代理为 `agents/`，规则为 `rules/`，命令为 `commands/`，钩子配置为 `hooks/hooks.json`。Commands 与 Hooks 使用方式见 [Plugin & Skill 开发规范符合性说明](docs/PLUGIN-AND-SKILL-COMPLIANCE.md#6-commands-与-hooks)。
+
+## Components
+
+### Skills
+
+| Skill | Description |
+|:------|:------------|
+| `spec-agent-task` | 统一编排入口：从原始需求到完整文档集，含阶段子代理与澄清闭环 |
+| `spec-agent-init` | 初始化需求工作区状态（目录、metadata、激活指针） |
+| `spec-agent-write` | 由调用端 AI 直接撰写 analysis / PRD / tech / acceptance 四份文档 |
+| `spec-agent-update` | 通用文档重写（非澄清专项） |
+| `spec-agent-clarify` | 基于已确认澄清项重写文档：结合澄清重新设计整份文档、整体回顾矛盾与更优实现，需用户确认的追加到澄清；多轮收敛 |
+| `spec-agent-check` | 执行 final-check 质量门禁与一致性检查 |
+| `spec-agent-memory` | 维护跨需求全局记忆 `spec/00-global-memory.md` |
+| `spec-agent-switch` | 切换当前激活需求（多需求场景） |
+| `spec-agent-chat` | 对话中识别澄清/记忆，写入并联动更新文档（结合澄清重设计整份文档、整体回顾，需用户确认的追加到澄清）与阶段状态 |
+
+### Agents
+
+| Agent | Description |
+|:------|:------------|
+| `spec-agent-orchestrator` | 编排端到端流程：project_mode、阶段顺序、subagent-context 交接、final_check 与自动回退映射 |
+
+### Rules
+
+| Rule | Description |
+|:-----|:------------|
+| `delivery.mdc` | 项目/功能完整交付闭环与验收强制流程 |
+| `coding.mdc` | 代码复用、文件约束、注释与问题修复原则 |
+
+## 默认工作模式
+
+使用 Cursor Plugin 规范：技能与规则由 `.cursor-plugin/plugin.json` 声明，技能实现位于 `skills/`，插件级代理位于 `agents/`。
 
 核心入口：
 - `spec-agent-task`：统一编排入口（AI IDE 推荐直接调用）
@@ -25,11 +63,11 @@
 - `spec-agent-init`：初始化需求状态
 - `spec-agent-write`：调用端 AI 直接撰写 4 份文档
 - `spec-agent-update`：调用端 AI 做通用文档重写
-- `spec-agent-clarify`：基于已确认澄清重写文档
+- `spec-agent-clarify`：基于已确认澄清重写文档（结合澄清重新设计整份文档、整体回顾矛盾与更优实现，需用户确认的追加到澄清）
 - `spec-agent-check`：执行质量门禁检查
 - `spec-agent-memory`：记录跨需求通用规则
 - `spec-agent-switch`：切换当前激活需求
-- `spec-agent-chat`：在 AI IDE 对话中自动识别“澄清/记忆”，记录并联动更新文档
+- `spec-agent-chat`：在 AI IDE 对话中自动识别“澄清/记忆”，记录并联动更新文档（同上：结合澄清重设计、整体回顾，需确认的追加到澄清）
 
 共享状态：
 
@@ -132,6 +170,8 @@ AI 会按流程自动做这几件事：
 2. 回到 AI IDE，直接发送：`/spec-agent-clarify 我已经补充并确认了澄清文档，请基于已确认项重新更新全部文档。`或`/spec-agent-clarify 已确认，请更新`
 3. 如果你希望“只要还有未确认项就不要更新”，直接发送：`/spec-agent-clarify 按严格模式执行，有未确认项就先报出来。`
 
+更新时 AI 会**结合澄清内容重新设计调整整份文档**（不限于改对应段落），**整体回顾**各文档前后是否矛盾、是否有更合适的实现；若发现需用户确认的内容会**追加到澄清文档**（新澄清项、状态待确认）。
+
 ## 快速开始
 
 1. 把原始需求完整告诉 AI（目标、范围、限制、上下游、数据库信息）。
@@ -152,7 +192,8 @@ AI 会按流程自动做这几件事：
 ### 澄清闭环
 
 `/spec-agent-clarify 我已经补充了澄清文档，请基于已确认项更新全部文档并复检。`  
-如果你要卡口更严格：`/spec-agent-clarify 未确认项不要跳过，先拦截并列出来。`
+如果你要卡口更严格：`/spec-agent-clarify 未确认项不要跳过，先拦截并列出来。`  
+澄清驱动更新时，会结合澄清重新设计整份文档、整体回顾矛盾与更优实现，需用户确认的会追加到澄清文档。
 
 ### 分析辅助
 
@@ -233,12 +274,12 @@ python scripts/regression_all.py
 
 说明：
 - `regression_edge_cases.py` 会临时覆盖配置用于负向测试，需顺序执行。
-- `regression_split_skill_contract.py` 校验 `skills-split/` 下所有拆分 skill 的契约完整性。
+- `regression_split_skill_contract.py` 校验 `skills/` 下所有 skill 的契约完整性。
 - `final-check` 对写回澄清采取“收敛策略”：仅把需要用户决策的澄清型问题写入 `00-clarifications.*`，文档质量类问题仅在检查结果中报告。
 
 ## 配置
 
-配置文件：`spec-agent.config.json`
+配置文件：`scripts/spec-agent.config.json`
 
 常用项：
 

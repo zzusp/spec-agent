@@ -1,4 +1,4 @@
-﻿#!/usr/bin/env python
+#!/usr/bin/env python
 from __future__ import annotations
 
 import argparse
@@ -18,7 +18,7 @@ from urllib.parse import unquote, urlparse
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-CONFIG_FILE = ROOT / "spec-agent.config.json"
+CONFIG_FILE = ROOT / "scripts" / "spec-agent.config.json"
 RUNTIME_JSON_OUTPUT = False
 METADATA_VERSION_KEY = "_meta_version"
 AI_DB_CONNECTIONS_KEY = "ai_db_connections"
@@ -95,6 +95,47 @@ DB_SCHEMA_START = "<!-- DB-SCHEMA:START -->"
 DB_SCHEMA_END = "<!-- DB-SCHEMA:END -->"
 DEP_SIG_START = "<!-- DEPENDENCY-SIGNATURE:START -->"
 DEP_SIG_END = "<!-- DEPENDENCY-SIGNATURE:END -->"
+
+# 修订记录表：修订日期(yyyy-MM-dd)、修订人、修订内容摘要
+REVISION_TABLE_HEADER = "| 修订日期 | 修订人 | 修订内容摘要 |"
+REVISION_TABLE_SEP = "|---|:---:|---|"
+REVISION_SECTION_TITLE = "## 修订记录"
+
+
+def _revision_table_block(initial_date: str, initial_reviser: str = "初始化", initial_summary: str = "初始创建") -> str:
+    """生成修订记录表块（含表头、分隔符与一行初始记录）。"""
+    return f"""
+{REVISION_SECTION_TITLE}
+{REVISION_TABLE_HEADER}
+{REVISION_TABLE_SEP}
+| {initial_date} | {initial_reviser} | {initial_summary} |
+"""
+
+
+def append_revision_row(doc_content: str, date: str, reviser: str, summary: str) -> str:
+    """在文档的修订记录表中追加一行。若未找到修订记录表则原样返回。
+    date: yyyy-MM-dd, reviser: 修订人, summary: 修订内容摘要。
+    """
+    if REVISION_SECTION_TITLE not in doc_content or REVISION_TABLE_SEP not in doc_content:
+        return doc_content
+    line = f"| {date} | {reviser} | {summary} |"
+    # 在分隔符后找到最后一个表行，在其后插入新行
+    parts = doc_content.split(REVISION_TABLE_SEP, 1)
+    if len(parts) != 2:
+        return doc_content
+    after_sep = parts[1]
+    lines = after_sep.split("\n")
+    insert_at = 0
+    for i, ln in enumerate(lines):
+        stripped = ln.strip()
+        if stripped.startswith("|") and stripped.endswith("|") and "|" in stripped[1:-1]:
+            insert_at = i + 1
+        elif stripped and not stripped.startswith("|"):
+            break
+    new_line = line + "\n"
+    lines.insert(insert_at, new_line.strip())
+    return parts[0] + REVISION_TABLE_SEP + "\n".join(lines)
+
 
 SUBAGENT_STAGE_ORDER = ["analysis", "prd", "tech", "acceptance", "final_check"]
 SUBAGENT_STAGE_DEPENDENCIES = {
@@ -245,7 +286,7 @@ def load_config():
             if isinstance(loaded, dict):
                 cfg.update({k: v for k, v in loaded.items() if v is not None})
         except json.JSONDecodeError:
-            raise SystemExit("invalid spec-agent.config.json")
+            raise SystemExit("invalid scripts/spec-agent.config.json")
     return cfg
 
 
@@ -1070,6 +1111,8 @@ def _initial_clarifications_markdown(title: str) -> str:
 ## 澄清项
 {_render_clarification_header()}
 | {example["id"]} | {example["status"]} | {example["priority"]} | {example["impact"]} | {example["doc"]} | {example["section"]} | {example["question"]} | {example["answer"]} | {example["solution"]} |
+
+{_revision_table_block(dt.datetime.now().strftime("%Y-%m-%d"))}
 """
 
 
@@ -1123,6 +1166,7 @@ def init_docs(path: Path, title: str, original_requirement: str, project_mode: s
 {CLARIFY_START}
 - 无
 {CLARIFY_END}
+{_revision_table_block(dt.datetime.now().strftime("%Y-%m-%d"))}
 """
 
     prd = f"""# PRD - {title}
@@ -1152,6 +1196,7 @@ def init_docs(path: Path, title: str, original_requirement: str, project_mode: s
 {CLARIFY_START}
 - 无
 {CLARIFY_END}
+{_revision_table_block(dt.datetime.now().strftime("%Y-%m-%d"))}
 """
 
     tech = f"""# 技术方案 - {title}
@@ -1194,6 +1239,7 @@ def init_docs(path: Path, title: str, original_requirement: str, project_mode: s
 {CLARIFY_START}
 - 无
 {CLARIFY_END}
+{_revision_table_block(dt.datetime.now().strftime("%Y-%m-%d"))}
 """
 
     acceptance = f"""# 验收清单 - {title}
@@ -1229,6 +1275,7 @@ def init_docs(path: Path, title: str, original_requirement: str, project_mode: s
 {CLARIFY_START}
 - 无
 {CLARIFY_END}
+{_revision_table_block(dt.datetime.now().strftime("%Y-%m-%d"))}
 """
 
     write_file(path / DOC_FILES["clarifications"], clarifications)

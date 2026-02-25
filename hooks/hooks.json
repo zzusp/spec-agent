@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "hooks": {
+    "sessionEnd": [
+      {
+        "command": "python scripts/spec_agent.py list"
+      }
+    ]
+  }
+}

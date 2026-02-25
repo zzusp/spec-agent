@@ -2,8 +2,7 @@
 
 ## Scope
 
-This repository uses split skills under `skills-split/` as the default workflow.
-Legacy root skill entry files (`SKILL.md`, `agents/openai.yaml`) are intentionally removed.
+This repository follows the Cursor Plugin layout (see `.cursor-plugin/plugin.json`): skills live under `skills/`, plugin-level agents under `agents/`, rules under `rules/`.
 
 Use `spec-agent-task` as the primary entry skill in AI IDE.
 
@@ -28,6 +27,8 @@ Trigger split skills when user intent includes any of:
 4. All four docs (`analysis/prd/tech/acceptance`) must always incorporate:
    - global memory (`spec/00-global-memory.md`)
    - confirmed clarifications (`00-clarifications.md` as source of truth, `.json` as mirror)
+   - for `prd/tech/acceptance`, include dependency signatures:
+   - **修订记录**：五份文档（`analysis` / `PRD` / `tech` / `acceptance` / `clarifications`）均包含「## 修订记录」表（修订日期 yyyy-MM-dd、修订人、修订内容摘要）。凡会修改上述文档的 skill 在每次更新文档时，必须在该文档的修订记录表中追加一行。
    - for `prd/tech/acceptance`, include dependency signatures:
      - `<!-- DEPENDENCY-SIGNATURE:START --> ... <!-- DEPENDENCY-SIGNATURE:END -->`
      - signature values must match current upstream content hashes
@@ -71,7 +72,7 @@ For mutating commands, support preview mode:
 ```
 
 Optional default:
-- Set `dry_run_default: true` in `spec-agent.config.json`.
+- Set `dry_run_default: true` in `scripts/spec-agent.config.json`.
 
 ## Clarification policy
 
@@ -79,6 +80,7 @@ Optional default:
 - `00-clarifications.md` is the single source of truth; `00-clarifications.json` is a machine-readable mirror.
 - Only configured statuses are valid.
 - Confirmed status is defined by config key: `clarify_confirmed_status`.
+- When applying confirmed clarifications to docs (e.g. via spec-agent-clarify or spec-agent-chat): combine clarification content to redesign and adjust full document; review whole document for contradictions or better implementations; append items that need user confirmation to the clarification doc as new pending rows.
 
 ## DB context policy
 
@@ -101,10 +103,12 @@ python scripts/regression_split_skill_contract.py
 ```
 
 Do not run them in parallel.  
-`regression_edge_cases.py` temporarily overrides config for negative tests.
+`regression_edge_cases.py` temporarily overrides config for negative tests. On Windows, two lock/concurrent tests are skipped to avoid runner-induced KeyboardInterrupt; lock semantics are exercised on Unix.
 
 ## References
 
-- Split skills: `skills-split/`
+- Split skills: `skills/` (plugin manifest: `.cursor-plugin/plugin.json`)
+- Plugin agents: `agents/`
 - Runtime script: `scripts/spec_agent.py`
-- Config: `spec-agent.config.json`
+- Config: `scripts/spec-agent.config.json`
+- Plugin & skill compliance: `docs/PLUGIN-AND-SKILL-COMPLIANCE.md` (trigger model, script usage, skill-to-skill)
