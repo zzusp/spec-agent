@@ -40,6 +40,15 @@ Use when the workspace is initialized and docs must be drafted (analysis, PRD, t
 - Fill each doc according to repository-required sections and mandatory content.
 - Ensure R-xx mapping consistency across analysis/PRD/tech/acceptance.
 - For `00-clarifications.md`, generate candidate questions using `spec-agent-clarify` candidate question policy.
+
+### 04-acceptance.md（验收项）可测试性要求（must）
+
+撰写或更新验收清单时，每条验收项（A-xxx）须便于实现阶段按 TDD（RED-GREEN-REFACTOR）先写失败测试再实现：
+
+- **验收步骤**：须**可执行**——明确「在何种前置条件下、执行何种操作、输入/输出或系统状态可观测」；避免仅描述意图而无可操作步骤。
+- **通过标准**：须**可断言**——每条标准能对应成测试中的明确判定（真/假或等价于断言），例如返回值、状态码、数据变更、日志条目等；禁止仅用「功能正常」「体验良好」等不可验证表述作为唯一通过标准，须拆成可验证条款。
+- **建议测试层级**（可选）：对每条 A-xxx 标注建议验证层级（单元 / 集成 / 端到端），便于实现时先写对应层级的失败测试。
+- 与 R-xx、技术方案一致：验收项须能追溯到 PRD/tech 中的需求与设计，且表述与 03-tech 中的接口、数据、流程一致，避免实现时歧义。
 - In subagent mode, always read `subagent-context` before drafting current stage and commit completion with `subagent-stage`.
 - Treat `subagent-context.project_mode` as mandatory routing signal for clarification focus:
   - `greenfield`: full-spectrum clarification (requirement + architecture + performance + deploy + security + stack/language/db choices + operations readiness).

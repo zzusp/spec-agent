@@ -30,6 +30,7 @@ spec-agent 是一套面向 AI IDE 的需求文档工作流：把原始需求转�
 2. **首版文档** — AI 按顺序生成分析、PRD、技术方案、验收清单，并做一致性检查；不明确点写入澄清文档。
 3. **补充澄清** — 你在 `00-clarifications.md` 中把项标为「已确认」并填写确认内容与方案，再用 `/spec-agent-clarify` 让 AI 基于已确认项重写全部文档并复检。
 4. **收敛** — 重复「补充澄清 → clarify」直到检查通过，需求文档集即可作为交付与开发依据。
+5. **实现阶段**（推荐）— 开发时按 `04-acceptance.md` 的验收项采用 TDD（RED-GREEN-REFACTOR），见 [QUICKSTART.md](QUICKSTART.md) 与 `rules/delivery.mdc`。
 
 更细的步骤、常用命令与故障排查见 [QUICKSTART.md](QUICKSTART.md)。
 

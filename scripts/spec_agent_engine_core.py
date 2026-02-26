@@ -1250,6 +1250,8 @@ def init_docs(path: Path, title: str, original_requirement: str, project_mode: s
 | A-001 | 待补充（R-01） | 待补充 |
 
 ## 验收计划与步骤
+（每条验收项的「验收步骤」须可执行、「通过标准」须可断言，便于实现阶段按 TDD 先写失败测试再实现。）
+
 ### A-001 验收计划与步骤（R-01）
 - 验收目标：待补充
 - 前置条件：

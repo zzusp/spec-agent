@@ -1,13 +1,13 @@
 ---
 name: spec-agent-clarify
-description: Close clarification items and drive clarification-based document rewrites in AI-first mode. Use when user confirms clarification rows and wants all docs regenerated from confirmed decisions; updates must apply clarification decisions to redesign and adjust full doc content (not only adding C-xxx references).
+description: Close clarification items and drive clarification-based document rewrites in AI-first mode. Use when user has batch-confirmed clarification rows and wants systematic doc rewrites with round report; apply clarification decisions per AGENTS.md § Document update (apply clarifications).
 ---
 
 # Spec agent clarify
 
 ## Trigger
 
-Use when the user has confirmed clarification rows and wants all docs regenerated from confirmed decisions (clarification-driven rewrite loop).
+Use when the user has **batch-confirmed** clarification rows and wants **systematic** doc rewrites from confirmed decisions, with **round report** (clarification-driven rewrite loop). For single or few conversational updates, prefer `spec-agent-chat`.
 
 ## Workflow
 
@@ -89,28 +89,15 @@ For each candidate item, include:
 ```bash
 python scripts/spec_agent.py check-clarifications --strict
 ```
-3. If gate passes, apply confirmed clarifications to docs using two-phase update (see **Document update scope** and **Two-phase update quality rule** below).
+3. If gate passes, apply confirmed clarifications to docs per **Document update (must)** below and AGENTS.md § Document update (apply clarifications).
 4. Add newly found unclear items back into `00-clarifications.md/.json` as candidate questions (follow candidate question generation policy).
 5. Run final check and iterate if needed.
 
-## 修订记录 (must)
+## Document update (must)
 
-- 每次根据澄清更新任一文档（`01-analysis.md`、`02-prd.md`、`03-tech.md`、`04-acceptance.md`、`00-clarifications.md`）时，必须在该文档的 **修订记录** 表中追加一行：**修订日期**（yyyy-MM-dd）、**修订人**（如「clarify-agent」或「用户」）、**修订内容摘要**（如「应用已确认澄清 C-xxx 重写相关章节」）。
-
-## Document update scope (must): 结合澄清内容重新设计调整整份文档，而非仅添加澄清引用
-
-- **Substantive update**: 根据已确认澄清的「用户确认/补充」与「解决方案」，修订文档中**所有受影响的章节与整体设计**，使正文结论、范围、方案、验收标准等与澄清决策一致。不得仅在各文档中增加 C-xxx 引用即视为完成。
-- **Whole-document review (must)**: 每份文档更新时须**整体回顾整篇文档**，不仅修改与澄清直接对应的段落。思考：内容前后是否有矛盾、是否有更合适的表述或实现；若有矛盾或更优方案且可自行收敛则直接修正，若需用户决策则**追加到澄清文档**（`00-clarifications.md/.json`）为新澄清项、状态为待确认。
-- **Targeted then holistic**: 先按澄清影响修订相关段落（需求范围、架构、数据、验收项等），再通读整份文档做一致性检查；若发现新的冲突、遗漏或需用户确认的点，补充到澄清或当轮修正。
-- **Traceability minimum**: 每份文档须包含 `## 澄清补充` 区块并引用已确认澄清（C-xxx）、体现决策要点；仍须满足依赖签名与全局记忆约束等既有要求。
-
-## Two-phase update quality rule (must)
-
-When applying a clarification to any of the 4 docs (`analysis/prd/tech/acceptance`), enforce:
-- Section-level precision first (avoid unnecessary global rewrite).
-- **Whole-document review**: 通读整份文档，检查前后是否矛盾、是否有更合适的实现；需用户确认的内容必须追加到澄清文档并标为待确认。
-- If whole-document review finds new unresolved issues, do not silently continue; append them to clarifications and mark as pending.
-- Prefer preventing acceptance-test mismatch and downstream rework over keeping question count low.
+- **遵循 AGENTS.md § Clarification policy → Document update (apply clarifications)**：结合澄清重写文档时，按该节的 Substantive update、Whole-document review、Targeted then holistic、修订记录、Acceptance 可测试性、Traceability minimum、Convergence 执行。
+- **修订记录**：每次根据澄清更新任一文档时，在该文档的「## 修订记录」表中追加一行：修订日期（yyyy-MM-dd）、修订人（如「clarify-agent」或「用户」）、修订内容摘要（如「应用已确认澄清 C-xxx 重写相关章节」）。
+- **Two-phase**：先按澄清影响修订相关段落，再通读整份文档做一致性检查；发现需用户决策的内容须追加到澄清文档并标为待确认。
 
 ## Minimal viable enhancement (enforced)
 

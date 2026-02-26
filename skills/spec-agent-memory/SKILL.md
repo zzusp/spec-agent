@@ -1,13 +1,13 @@
 ---
 name: spec-agent-memory
-description: Maintain project-level and user-level persistent memory shared by all requirements. Use when users provide global constraints, conventions, terminology, compliance rules, or preferences that should apply to every requirement.
+description: Maintain project-level and user-level persistent memory shared by all requirements. Use when users explicitly ask to add or change global memory; for in-conversation updates, spec-agent-chat can also record to global memory.
 ---
 
 # Spec agent memory
 
 ## Trigger
 
-Use when users provide global constraints, conventions, terminology, compliance rules, or preferences that should apply to every requirement.
+Use when users **explicitly** ask to add or change global memory entries (constraints, conventions, terminology, compliance rules, or preferences that apply to every requirement). If the user provides such content in passing during conversation, `spec-agent-chat` can also record it (chat classifies as `memory` and writes to `spec/00-global-memory.md`).
 
 ## Workflow
 

@@ -40,6 +40,10 @@ AI 会按流程自动完成：
   - `prd/tech/acceptance` 必须包含依赖签名区块：`<!-- DEPENDENCY-SIGNATURE:START --> ... <!-- DEPENDENCY-SIGNATURE:END -->`，签名中记录上游文档哈希
   - `final-check` 会基于文档内容哈希检查下游是否使用上游最新内容，并校验 R→PRD→TECH→A 的链路追踪完整性
 
+### 实现阶段：TDD 与 RED-GREEN-REFACTOR（推荐）
+
+文档收敛后进入开发实现时，建议采用**测试驱动开发**：以 `04-acceptance.md` 的验收项（A-xxx）为先，**先写失败测试（RED）→ 最小实现通过（GREEN）→ 在测试保持通过下重构（REFACTOR）**。插件规则 `rules/delivery.mdc` 中已约定该流程，AI 在实现阶段会按此执行。
+
 ### 用户补充澄清后如何触发更新
 
 1. 打开 `spec/YYYY-MM-DD/<name>/00-clarifications.md`，把确认过的问题状态改为 `已确认`，并补全「用户确认/补充」和「解决方案」。

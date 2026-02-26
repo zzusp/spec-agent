@@ -1,19 +1,20 @@
 ---
 name: spec-agent-update
-description: Regenerate or refine existing requirement docs directly with caller AI. Use when user asks to revise previously generated documents without clarification-specific workflow.
+description: Regenerate or refine existing requirement docs directly with caller AI. Use when user explicitly asks to revise specific doc(s)/section(s) without clarification-table workflow; if intent is to apply confirmed clarifications, use spec-agent-clarify or spec-agent-chat.
 ---
 
 # Spec agent update
 
 ## Trigger
 
-Use when the user asks to revise previously generated documents without going through the clarification-specific workflow.
+Use when the user **explicitly** asks to revise specific document(s) or section(s), **without** going through the clarification-table confirmation workflow. If the user intent is to apply already-confirmed clarifications to docs, use `spec-agent-clarify` or `spec-agent-chat` instead.
 
 ## Workflow
 
 1. Read `spec/00-global-memory.md` and current docs plus user change request.
 2. Rewrite affected sections directly with caller AI; keep R-xx mapping aligned.
-3. Run final check after updates.
+3. **若修订 04-acceptance.md**：验收项须满足可测试性（验收步骤可执行、通过标准可断言），见 `spec-agent-write`「04-acceptance.md 可测试性要求」。
+4. Run final check after updates.
 
 ## Memory preload (must)
 

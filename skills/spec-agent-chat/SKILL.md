@@ -1,13 +1,13 @@
 ---
 name: spec-agent-chat
-description: Route user chat into clarification or memory updates, then drive document refresh in AI-first mode. Use when users send conversational updates in AI IDE and expect automatic recording plus document updates that apply clarification decisions to redesign and adjust full doc content (not only adding C-xxx references).
+description: Route user chat into clarification or memory updates, then drive document refresh in AI-first mode. Use when users send conversational (one or few) updates in AI IDE and expect automatic classification, recording, and document updates per AGENTS.md § Document update (apply clarifications).
 ---
 
 # Spec agent chat
 
 ## Trigger
 
-Use when users send conversational updates in AI IDE and expect automatic classification (clarification vs memory), recording, and selective document updates. Invoke as `/spec-agent-chat ...`
+Use when users send **conversational** updates in AI IDE (one or a few messages) and expect automatic classification (clarification vs memory), recording, and selective document updates. For batch-confirmed clarification rows with round report, use `spec-agent-clarify`. Invoke as `/spec-agent-chat ...`
 
 ## Workflow
 
@@ -45,6 +45,7 @@ Classify each user message into exactly one bucket:
 
 1. `clarification`
 - Requirement-specific decision, constraint, scope, acceptance rule, edge case, or answer to open item.
+- **若用户意图是「按刚才确认的澄清更新文档」**：视为 clarification，写入澄清后走 Post-save update loop 更新受影响文档（不要用 `spec-agent-update`）。
 - Record to `00-clarifications.md/.json`.
 
 2. `memory`
@@ -104,23 +105,13 @@ python scripts/spec_agent.py subagent-context --name <name> --stage <stage> --js
 python scripts/spec_agent.py subagent-stage --name <name> --stage <stage> --status completed --agent <stage-agent>
 ```
 
-7. **Document update scope (must): 结合澄清内容重新设计调整整份文档，而非仅添加澄清引用**
-
-- **Substantive update**: 根据已确认澄清的「用户确认/补充」与「解决方案」，修订文档中**所有受影响的章节与整体设计**，使正文结论、范围、方案、验收标准等与澄清决策一致。不得仅在各文档中增加一条 C-xxx 引用即视为完成。
-- **Whole-document review (must)**: 每份文档更新时须**整体回顾整篇文档**，不仅修改与澄清直接对应的段落。思考：内容前后是否有矛盾、是否有更合适的表述或实现；若有矛盾或更优方案且可自行收敛则直接修正，若需用户决策则**追加到澄清文档**（`00-clarifications.md/.json`）为新澄清项、状态为待确认。
-- **Targeted then holistic**: 先按澄清影响修订相关段落，再通读整份文档做一致性检查；若发现新的冲突、遗漏或需用户确认的点，补充到澄清或当轮修正。
-- **Traceability minimum**: 每份文档仍须包含：
-  - `## 全局记忆约束` with concrete bullets
-  - `## 澄清补充` block: `<!-- CLARIFICATIONS:START -->` … `<!-- CLARIFICATIONS:END -->`，其中引用已确认澄清（C-xxx）并简要体现决策要点
-- clarification focus must follow `project_mode`:
-  - `greenfield`: broaden to baseline system decisions
-  - `existing`: prioritize requirement/scheme impact; cross-cutting topics only when changed
-- convergence rule: if an issue is a pure doc-quality fix (not a user decision), update docs directly and do not append new clarification rows
+7. **Document update scope (must)**：遵循 **AGENTS.md § Clarification policy → Document update (apply clarifications)**（与 spec-agent-clarify 同一套规则）。结合澄清重写时：Substantive update、Whole-document review、Targeted then holistic、修订记录、Acceptance 可测试性、Traceability minimum、Convergence 均按该节执行。clarification focus 按 `project_mode`：`greenfield` 覆盖基线决策，`existing` 优先需求/方案影响，跨领域仅在变更时涉及。
 
 8. For `prd/tech/acceptance`, include dependency signatures:
 - `<!-- DEPENDENCY-SIGNATURE:START -->`
 - `<!-- DEPENDENCY-SIGNATURE:END -->`
 - signature values must match current upstream content hashes
+- **若更新 04-acceptance.md**：验收项须满足可测试性——验收步骤可执行、通过标准可断言（同 `spec-agent-write` 中「04-acceptance.md 可测试性要求」），便于实现阶段 TDD。
 
 9. Run checks:
 - `sync-memory` (when memory changed)

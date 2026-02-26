@@ -35,6 +35,7 @@ python scripts/spec_agent.py final-check
 
 - Detect missing required docs.
 - Validate placeholders, structure, and R-xx consistency.
+- 对验收文档（04-acceptance.md）：final-check 通过后，建议确认每条验收项满足可测试性（验收步骤可执行、通过标准可断言），便于实现阶段 TDD；详见 `spec-agent-write`「04-acceptance.md 可测试性要求」。
 - Convergence-first writeback:
   - append only clarification-relevant issues (need user decision) into clarifications.
   - for pure doc-quality issues, report and fix in docs directly; do not expand clarification list.

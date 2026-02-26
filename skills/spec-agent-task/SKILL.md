@@ -69,6 +69,7 @@ python scripts/spec_agent.py subagent-init --name <name>
 python scripts/spec_agent.py subagent-status --name <name> --json-output
 ```
 7. Run stage subagents in order (`analysis -> prd -> tech -> acceptance`):
+   - **acceptance 阶段**：撰写验收项时须满足可测试性（验收步骤可执行、通过标准可断言），见 `spec-agent-write`「04-acceptance.md 可测试性要求」。
    - before each stage, read context:
 ```bash
 python scripts/spec_agent.py subagent-context --name <name> --stage <stage> --json-output

@@ -13,6 +13,7 @@ alwaysApply: false
 
 - 文档撰写顺序固定：**analysis** → **prd** → **tech** → **acceptance**；下游文档必须基于上游内容撰写，不得跳步或颠倒。
 - 撰写前纳入：全局记忆（如 `spec/00-global-memory.md`）、已确认的澄清（`00-clarifications.md` 中状态为已确认的项）。
+- **acceptance（04-acceptance.md）**：验收项（A-xxx）的「验收步骤」与「通过标准」应表述为可执行、可断言的形式，便于实现阶段按 TDD（RED-GREEN-REFACTOR）将每条验收项转化为先写失败测试再实现。
 
 ## 修订记录与签名
 

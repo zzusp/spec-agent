@@ -82,6 +82,18 @@ Optional default:
 - Confirmed status is defined by config key: `clarify_confirmed_status`.
 - When applying confirmed clarifications to docs (e.g. via spec-agent-clarify or spec-agent-chat): combine clarification content to redesign and adjust full document; review whole document for contradictions or better implementations; append items that need user confirmation to the clarification doc as new pending rows.
 
+### Document update (apply clarifications)
+
+When applying confirmed clarifications to any of the four docs (analysis / PRD / tech / acceptance), the following rules are the single source of truth. Skills spec-agent-clarify and spec-agent-chat must follow them; they may add only skill-specific output (e.g. round report, status card).
+
+- **Substantive update**: 根据已确认澄清的「用户确认/补充」与「解决方案」，修订文档中**所有受影响的章节与整体设计**，使正文结论、范围、方案、验收标准等与澄清决策一致。不得仅在各文档中增加 C-xxx 引用即视为完成。
+- **Whole-document review (must)**: 每份文档更新时须**整体回顾整篇文档**，不仅修改与澄清直接对应的段落。若有矛盾或更优方案且可自行收敛则直接修正，若需用户决策则追加到澄清文档（`00-clarifications.md/.json`）为新澄清项、状态为待确认。
+- **Targeted then holistic**: 先按澄清影响修订相关段落，再通读整份文档做一致性检查；若发现新的冲突、遗漏或需用户确认的点，补充到澄清或当轮修正。
+- **修订记录**: 每次更新任一文档（`01-analysis.md`、`02-prd.md`、`03-tech.md`、`04-acceptance.md`、`00-clarifications.md`）时，在该文档的「## 修订记录」表中追加一行：修订日期（yyyy-MM-dd）、修订人、修订内容摘要。
+- **Acceptance 可测试性**: 凡修改或新增验收项（A-xxx），须保持验收步骤可执行、通过标准可断言；若澄清导致验收条件变化，须把验收步骤与通过标准改写为可测试形式，便于实现阶段 TDD。
+- **Traceability minimum**: 每份文档须包含 `## 澄清补充` 区块并引用已确认澄清（C-xxx）、体现决策要点；仍须满足依赖签名与全局记忆约束等既有要求。
+- **Convergence**: 纯文档质量/表述问题可直接在文档中修正，不要扩充澄清列表；需用户决策的内容才追加为待确认澄清项。
+
 ## DB context policy
 
 - If requirement or clarification includes DB connection string or connection-file path:
