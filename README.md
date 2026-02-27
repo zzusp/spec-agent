@@ -64,6 +64,13 @@ spec-agent 是一套面向 AI IDE 的需求文档工作流：把原始需求转�
 | `coding.mdc` | 代码复用、文件约束、注释与问题修复原则 |
 | `spec-agent.mdc` | 使用 spec-agent 时的文档顺序、修订记录、澄清真源与多需求约定 |
 
+## 理念 / Philosophy
+
+- **Test-Driven Development** — Write tests first, always.（测试先行，始终如此。）
+- **Systematic over ad-hoc** — Process over guessing.（流程优先于猜测。）
+- **Complexity reduction** — Simplicity as primary goal.（以简单为首要目标。）
+- **Evidence over claims** — Verify before declaring success.（先验证再宣布成功。）
+
 ## 设计原则
 
 - **文档顺序强约束** — 分析 → PRD → 技术方案 → 验收清单；下游必须基于上游与澄清、全局记忆更新。
