@@ -22,6 +22,10 @@ Use when user asks for full requirement delivery via `/spec-agent-task` or when 
 5. If issues=0: `subagent-stage --stage final_check --status completed`. If issues>0: mark final_check failed (auto-reopen mapping applies).
 6. Repeat revision loop until checks pass; persist cross-requirement rules via spec-agent-memory.
 
+## Principles
+
+- **YAGNI**：撰写 analysis / PRD / tech / acceptance 时，范围限定于**当前需求**；不为“可能将来会用到”或假设的扩展提前撰写功能、接口或验收项；当前需求明确要求时再写入。
+
 ## Output
 
 - Requirement workspace at `spec/YYYY-MM-DD/<name>/` with analysis, PRD, tech, acceptance, clarifications.

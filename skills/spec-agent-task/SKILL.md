@@ -42,6 +42,7 @@ Use when the user asks for end-to-end requirement delivery and expects the calle
 3. Initialize workspace state only.
 4. Generate document content directly with caller AI and write files.
    - Prefer stage subagents (`analysis/prd/tech/acceptance/final_check`) coordinated by orchestrator.
+   - **YAGNI**：撰写时范围限定于当前需求；不为假设的将来需求提前撰写功能或设计（见 `rules/coding.mdc`、`docs/开发规范与流程总结.md`）。
 5. Run clarification gate and final check.
 6. If check returns issues, revise documents and repeat until acceptable.
 

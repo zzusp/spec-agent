@@ -117,6 +117,10 @@ python scripts/regression_split_skill_contract.py
 Do not run them in parallel.  
 `regression_edge_cases.py` temporarily overrides config for negative tests. On Windows, two lock/concurrent tests are skipped to avoid runner-induced KeyboardInterrupt; lock semantics are exercised on Unix.
 
+## Principles (see also)
+
+- **YAGNI (You Aren't Gonna Need It)**：不实现、不撰写当前需求不需要的内容；不为“可能将来会用到”提前做功能/抽象/扩展或文档中的设计。详见 `rules/coding.mdc`、`rules/delivery.mdc` 与 `docs/开发规范与流程总结.md`。
+
 ## References
 
 - Split skills: `skills/` (plugin manifest: `.cursor-plugin/plugin.json`)

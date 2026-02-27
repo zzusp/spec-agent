@@ -12,7 +12,7 @@ Use when the user has **batch-confirmed** clarification rows and wants **systema
 ## Workflow
 
 1. Ensure clarification rows are updated (status 已确认, 用户确认/补充, 解决方案 filled).
-2. Run `check-clarifications --strict`; if it passes, **apply confirmed clarifications to redesign and adjust full document content** (not only add C-xxx): two-phase update (targeted section rewrite, then holistic doc review).
+2. Run `check-clarifications --strict`; if it passes, **apply confirmed clarifications to redesign and adjust full document content** (not only add C-xxx): two-phase update (targeted section rewrite, then holistic doc review). **YAGNI**：重写时勿引入当前澄清决策之外的“将来可能”范围或设计。
 3. Add newly found unclear items to `00-clarifications.md/.json` per candidate question policy; run final check and iterate.
 
 ## Memory preload (must)

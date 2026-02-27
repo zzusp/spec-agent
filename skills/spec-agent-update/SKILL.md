@@ -12,7 +12,7 @@ Use when the user **explicitly** asks to revise specific document(s) or section(
 ## Workflow
 
 1. Read `spec/00-global-memory.md` and current docs plus user change request.
-2. Rewrite affected sections directly with caller AI; keep R-xx mapping aligned.
+2. Rewrite affected sections directly with caller AI; keep R-xx mapping aligned. **YAGNI**：仅按用户当次修订意图修改，不引入当前需求与修订范围之外的“将来可能”设计或功能。
 3. **若修订 04-acceptance.md**：验收项须满足可测试性（验收步骤可执行、通过标准可断言），见 `spec-agent-write`「04-acceptance.md 可测试性要求」。
 4. Run final check after updates.
 

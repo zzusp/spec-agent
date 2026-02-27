@@ -36,6 +36,7 @@ Use when the workspace is initialized and docs must be drafted (analysis, PRD, t
 
 ## Writing rules
 
+- **YAGNI**：文档范围限定于**当前需求**；不为“可能将来会用到”的功能、扩展或接口提前撰写分析/PRD/技术方案/验收项；当前需求明确要求时再写入。
 - Use caller AI reasoning, not template generation commands.
 - Fill each doc according to repository-required sections and mandatory content.
 - Ensure R-xx mapping consistency across analysis/PRD/tech/acceptance.

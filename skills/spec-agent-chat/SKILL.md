@@ -13,7 +13,7 @@ Use when users send **conversational** updates in AI IDE (one or a few messages)
 
 1. Resolve active requirement from `spec/.active`; if none, stop and prompt user to init or switch.
 2. Classify message as `clarification` (→ `00-clarifications.md/.json`) or `memory` (→ `spec/00-global-memory.md`).
-3. After write: ensure subagent state; **update impacted docs in stage order** (analysis → prd → tech → acceptance) by **applying clarification decisions to redesign and adjust full document content** (not only adding C-xxx); run sync-memory and final-check, commit final_check when issues=0.
+3. After write: ensure subagent state; **update impacted docs in stage order** (analysis → prd → tech → acceptance) by **applying clarification decisions to redesign and adjust full document content** (not only adding C-xxx); run sync-memory and final-check, commit final_check when issues=0. **YAGNI**：更新文档时范围限定于当前需求与已确认澄清，不引入“将来可能”的设计或功能描述。
 4. Return status card (当前需求, 本次识别, 写入结果, 文档更新, 阶段状态, 变更摘要, 检查结果, 下一步建议).
 
 ## Memory preload (must)
