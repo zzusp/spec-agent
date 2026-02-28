@@ -1,6 +1,6 @@
 ---
 name: spec-agent-init
-description: Initialize the project's spec directory for AI-first document generation. Fixed date and path; no .active switching. Detects empty vs non-empty project: empty creates spec skeleton only; non-empty also drives analysis, PRD, and tech doc generation.
+description: "Initialize the project's spec directory for AI-first document generation. Fixed date and path; no .active switching. Detects empty vs non-empty project: empty creates spec skeleton only; non-empty also drives analysis, PRD, and tech doc generation."
 ---
 
 # Spec agent init
@@ -22,7 +22,8 @@ Use **fixed date** `--date 0000-00-00` and **fixed name** `project-spec` on ever
 3. **Empty-project check**: Determine if the project is **empty**:
    - **Empty**: No typical source layout and no code files. Treat as empty when the project root has none of: common source dirs (e.g. `src/`, `lib/`, `app/`, `packages/`, `backend/`, `frontend/`), or no code files (e.g. no `*.py`, `*.ts`, `*.js`, `*.go`, `*.java`, `*.rs`, etc. under the root or one level down). Presence of only `README`, license, `.git`, config files, or a single `spec/` is consistent with empty.
    - **Non-empty**: Has source directories or code files as above.
-4. **Global memory**:
+4. **Global memory（禁止读取，仅检查存在性）**:
+   - **仅通过存在性检查**判断：例如 list 项目根下 `spec/` 目录，或检查 `spec/00-global-memory.md` 是否存在。**禁止**在本技能内对 `spec/00-global-memory.md` 调用 read_file / Read 等读取操作（易在文件不存在时卡住）。
    - If `spec/00-global-memory.md` **does not exist**: create it (ensure `spec/` exists first). Write a minimal default content, e.g.:
      ```markdown
      # 全局记忆
@@ -32,7 +33,7 @@ Use **fixed date** `--date 0000-00-00` and **fixed name** `project-spec` on ever
      ## 用户/团队约定
      - 待补充：命名规范、交付口径等。
      ```
-   - If the file **exists**: read it once and apply any naming/constraint rules for `name`/`title`.
+   - If the file **exists**: 不读取，直接进入下一步。name/title 使用固定值或从 raw_requirement 生成即可。
 5. **Branch A — Empty project**:
    - Run state-only init with fixed date and name: create requirement directory at `spec/0000-00-00/project-spec/`, metadata, clarification baseline, set `spec/.active`.
    - Do **not** create or fill `01-analysis.md`, `02-prd.md`, `03-tech.md`, `04-acceptance.md` in this skill (skeleton-only spec directory).
@@ -46,8 +47,9 @@ Use **fixed date** `--date 0000-00-00` and **fixed name** `project-spec` on ever
 
 ## Global memory
 
-- If `spec/00-global-memory.md` does not exist: **create it** with the default template above (ensure `spec/` exists first). Do not block on read; creating the file avoids missing-file issues.
-- If the file exists: read it and apply any naming/constraint rules for `name`/`title`.
+- **禁止读取**：本技能内**不得**对 `spec/00-global-memory.md` 执行 read_file / Read。仅通过 list 目录或检查文件是否存在判断。若不存在则创建；若存在则跳过，不读取。
+- If `spec/00-global-memory.md` does not exist: **create it** with the default template above (ensure `spec/` exists first).
+- If the file exists: 不读取，继续后续步骤。
 
 ## 项目 spec 的 name（固定值）
 
@@ -91,4 +93,4 @@ After init, caller AI fills `01-analysis.md`, `02-prd.md`, `03-tech.md` with pro
 - **Scope**: Only create/write under `spec/` (requirement directory, metadata, clarification baseline, `spec/.active`, and under `spec/db/` when applicable). Do not modify project source code (temporary scripts excepted per AGENTS.md).
 - **Empty**: Do not generate analysis/PRD/tech/acceptance content; only initialize spec skeleton.
 - **Non-empty**: Generate and write only 01-analysis, 02-prd, 03-tech with real content; acceptance and clarifications use the default content produced by init.
-- **00-global-memory.md**: If the file does not exist, create it with the default template so it exists for the project; do not block on reading a missing file.
+- **00-global-memory.md**: 禁止对本文件执行任何 read 操作；仅做存在性检查（list spec/ 或 exists）。不存在则创建默认模板；存在则跳过，不读取。
