@@ -80,3 +80,4 @@ Full subcommand contract: see AGENTS.md “Command contract”.
 ## Guardrails
 
 - Do not use `write-all` / `write-analysis` / `write-prd` / `write-tech` / `write-acceptance`.
+- **Scope**: Only write under `spec/` (requirement docs and `spec/db/` when applicable). When DB inspection is needed, the only allowed file outside `spec/` is the temporary script `.tmp_inspect_db.py` at project root, which must be **deleted after** `inspect-db` runs. Do not modify any other project source code (e.g. `.proto`, application code, config).

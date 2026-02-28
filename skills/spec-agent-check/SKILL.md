@@ -47,3 +47,7 @@ python scripts/spec_agent.py subagent-stage --name <name> --stage final_check --
 ## Output
 
 - Final-check result (issues count, clarification-relevant writeback if any); optional stage commit when issues=0.
+
+## Guardrails
+
+- **Scope**: Only run checks and write back to `spec/` (e.g. append issues to clarifications). Do not modify project source code (temporary scripts excepted per AGENTS.md).

@@ -9,6 +9,7 @@ Use `spec-agent-task` as the primary entry skill in AI IDE.
 ## When to trigger `spec-agent`
 
 Trigger split skills when user intent includes any of:
+
 - 提出开发需求或功能需求，需要产出完整需求文档集
 - 编写/更新 `analysis` / `PRD` / `tech` / `acceptance` / `clarifications`
 - 基于澄清文档多轮完善文档
@@ -18,45 +19,50 @@ Trigger split skills when user intent includes any of:
 ## Canonical workflow
 
 1. Use `/spec-agent-task <raw_requirement>` in AI IDE.
-2. Caller AI generates `name/title` and writes docs directly in strict order:
-   - `analysis` -> `prd` -> `tech` -> `acceptance`
-3. Downstream docs must be based on upstream docs:
-   - `prd` must incorporate `analysis`
-   - `tech` must incorporate `analysis` + `prd`
-   - `acceptance` must incorporate `analysis` + `prd` + `tech`
-4. All four docs (`analysis/prd/tech/acceptance`) must always incorporate:
-   - global memory (`spec/00-global-memory.md`)
-   - confirmed clarifications (`00-clarifications.md` as source of truth, `.json` as mirror)
-   - for `prd/tech/acceptance`, include dependency signatures:
-   - **修订记录**：五份文档（`analysis` / `PRD` / `tech` / `acceptance` / `clarifications`）均包含「## 修订记录」表（修订日期 yyyy-MM-dd、修订人、修订内容摘要）。凡会修改上述文档的 skill 在每次更新文档时，必须在该文档的修订记录表中追加一行。
-   - for `prd/tech/acceptance`, include dependency signatures:
-     - `<!-- DEPENDENCY-SIGNATURE:START --> ... <!-- DEPENDENCY-SIGNATURE:END -->`
-     - signature values must match current upstream content hashes
-5. Scripts are used for state/check gates (`sync-memory`, `init --state-only`, `check-clarifications`, `final-check`).
-   - When using stage subagents, also use:
-     - `subagent-init`
-     - `subagent-context`
-     - `subagent-stage`
-     - `subagent-status`
-6. Repeat clarification loop until checks pass.
+2. **Scope (all spec-agent skills)**: Every spec-agent skill **only** writes/updates files under `spec/` (requirement docs, global memory, metadata, `spec/.active`, and under `spec/db/` when applicable). No skill may modify **project source code** (e.g. `.proto`, application code, config, dependencies); code changes belong to the implementation phase after docs are closed. **Exception**: temporary scripts (e.g. `.tmp_inspect_db.py` at project root for DB inspection per “DB context policy” below) may be created for script execution and **must be deleted after use**.
+  - **Where `spec/` lives**: The `spec` directory is always under the **user’s project (workspace) root**—the directory from which the spec-agent commands are run (current working directory), **not** the plugin/skill repository root. When using the plugin in an IDE, ensure the process runs with the user’s project as CWD so that `spec/` is created at `<user_project_root>/spec`. Override with env `SPEC_AGENT_PROJECT_ROOT` if needed.
+3. Caller AI generates `name/title` and writes docs directly in strict order:
+  - `analysis` -> `prd` -> `tech` -> `acceptance`
+4. Downstream docs must be based on upstream docs:
+  - `prd` must incorporate `analysis`
+  - `tech` must incorporate `analysis` + `prd`
+  - `acceptance` must incorporate `analysis` + `prd` + `tech`
+5. All four docs (`analysis/prd/tech/acceptance`) must always incorporate:
+  - global memory (`spec/00-global-memory.md`)
+  - confirmed clarifications (`00-clarifications.md` as source of truth, `.json` as mirror)
+  - for `prd/tech/acceptance`, include dependency signatures:
+  - **修订记录**：五份文档（`analysis` / `PRD` / `tech` / `acceptance` / `clarifications`）均包含「## 修订记录」表（修订日期 yyyy-MM-dd、修订人、修订内容摘要）。凡会修改上述文档的 skill 在每次更新文档时，必须在该文档的修订记录表中追加一行。
+  - for `prd/tech/acceptance`, include dependency signatures:
+    - `<!-- DEPENDENCY-SIGNATURE:START --> ... <!-- DEPENDENCY-SIGNATURE:END -->`
+    - signature values must match current upstream content hashes
+6. Scripts are used for state/check gates (`sync-memory`, `init`, `check-clarifications`, `final-check`).
+  - **spec-agent-init** (when invoked standalone): Uses **fixed date** `--date 0000-00-00` so the requirement path is `spec/0000-00-00/project-spec/`. First judge if the user's project is **empty** (no source dirs/code files). **Empty** → `init --state-only` (skeleton only). **Non-empty** → `init` without `--state-only` (creates all doc templates), then caller AI fills 01/02/03; 04 and clarifications remain default. See `skills/spec-agent-init/SKILL.md`.
+  - When using stage subagents, also use:
+    - `subagent-init`
+    - `subagent-context`
+    - `subagent-stage`
+    - `subagent-status`
+7. Repeat clarification loop until checks pass.
 
 ## Command contract (single source of truth)
 
-| Command | Input | Output | Side effects |
-|---|---|---|---|
-| `init` | one of `--desc/--desc-json/--desc-file` (must carry user requirement content), optional `--name`, optional `--state-only`, optional `--project-mode` (`auto/greenfield/existing`) | requirement skeleton/state + metadata | create docs/state, set active |
-| `scan` | target requirement | module candidates | update analysis scan block |
-| `inspect-db` | target requirement | db schema summary | update analysis db-schema block |
-| `sync-memory` | target requirement (or active) | memory hash synced to metadata | update metadata memory snapshot |
-| `check-clarifications` | target requirement, optional `--strict` | unresolved clarification count | no write (strict mode returns non-zero when pending exists) |
-| `final-check` | target requirement | issue count | append clarification-relevant issues to clarifications (non-clarification quality issues only reported) |
-| `set-active` | `--name` or `--path` | active pointer | update `spec/.active` |
-| `list` | none | requirement list | no write |
-| `copy-rules` | optional `--dest` | copy result | write `.cursor/rules` |
-| `subagent-init` | target requirement, optional `--reset` | stage-state initialized | update metadata `subagents` section |
-| `subagent-context` | target requirement + `--stage` | stage input context (`target_sections`/`must_keep_sections`/`reopen_reason` + `project_mode`/`clarification_focus`) | no write (except one-time state normalization) |
-| `subagent-stage` | target requirement + `--stage` + `--status` | stage update result | update stage status / hashes; may downgrade downstream to pending; for `final_check failed` auto-map issues to reopen stage |
-| `subagent-status` | target requirement, optional `--normalize` | stage matrix + stale stages | default no write; with `--normalize` writes stale stages back to `pending` |
+
+| Command                | Input                                                                                                                                                                             | Output                                                                                                              | Side effects                                                                                                                |
+| ---------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| `init`                 | one of `--desc/--desc-json/--desc-file` (must carry user requirement content), optional `--name`, optional `--state-only`, optional `--project-mode` (`auto/greenfield/existing`) | **With `--state-only`**: skeleton + metadata. **Without**: skeleton + metadata + 01–04 and clarifications (default template content). | **With `--state-only`**: create state, set active. **Without**: create docs + state, set active. |
+| `scan`                 | target requirement                                                                                                                                                                | module candidates                                                                                                   | update analysis scan block                                                                                                  |
+| `inspect-db`           | target requirement                                                                                                                                                                | db schema summary                                                                                                   | update analysis db-schema block                                                                                             |
+| `sync-memory`          | target requirement (or active)                                                                                                                                                    | memory hash synced to metadata                                                                                      | update metadata memory snapshot                                                                                             |
+| `check-clarifications` | target requirement, optional `--strict`                                                                                                                                           | unresolved clarification count                                                                                      | no write (strict mode returns non-zero when pending exists)                                                                 |
+| `final-check`          | target requirement                                                                                                                                                                | issue count                                                                                                         | append clarification-relevant issues to clarifications (non-clarification quality issues only reported)                     |
+| `set-active`           | `--name` or `--path`                                                                                                                                                              | active pointer                                                                                                      | update `spec/.active`                                                                                                       |
+| `list`                 | none                                                                                                                                                                              | requirement list                                                                                                    | no write                                                                                                                    |
+| `copy-rules`           | optional `--dest`                                                                                                                                                                 | copy result                                                                                                         | write `.cursor/rules`                                                                                                       |
+| `subagent-init`        | target requirement, optional `--reset`                                                                                                                                            | stage-state initialized                                                                                             | update metadata `subagents` section                                                                                         |
+| `subagent-context`     | target requirement + `--stage`                                                                                                                                                    | stage input context (`target_sections`/`must_keep_sections`/`reopen_reason` + `project_mode`/`clarification_focus`) | no write (except one-time state normalization)                                                                              |
+| `subagent-stage`       | target requirement + `--stage` + `--status`                                                                                                                                       | stage update result                                                                                                 | update stage status / hashes; may downgrade downstream to pending; for `final_check failed` auto-map issues to reopen stage |
+| `subagent-status`      | target requirement, optional `--normalize`                                                                                                                                        | stage matrix + stale stages                                                                                         | default no write; with `--normalize` writes stale stages back to `pending`                                                  |
+
 
 ## Multi-requirement rules
 
@@ -67,12 +73,19 @@ Trigger split skills when user intent includes any of:
 ## Dry-run policy
 
 For mutating commands, support preview mode:
+
 ```bash
 ... --dry-run
 ```
 
 Optional default:
+
 - Set `dry_run_default: true` in `scripts/spec-agent.config.json`.
+
+## Global memory content policy
+
+- **Purpose**: `spec/00-global-memory.md` records **project-level context** (e.g. tech stack, deployment, compliance) and **user/team habits and conventions** (e.g. naming rules, “all requirements must record operator and source IP”) that apply across requirements.
+- **Do NOT write to global memory**: Single-requirement scope, description, or conclusion (e.g. “本需求（xxx）：仅变更某 proto”“本需求不修改业务代码”). Those belong in requirement docs or `00-clarifications.md`. Global memory is for **project situation and user habits**, not for the content of one requirement.
 
 ## Clarification policy
 
@@ -112,6 +125,7 @@ When applying confirmed clarifications to any of the four docs (analysis / PRD /
 ## Regression policy
 
 Run regression scripts sequentially:
+
 ```bash
 python scripts/regression_smoke.py
 python scripts/regression_edge_cases.py
@@ -132,3 +146,4 @@ Do not run them in parallel.
 - Runtime script: `scripts/spec_agent.py`
 - Config: `scripts/spec-agent.config.json`
 - Plugin & skill compliance: `docs/PLUGIN-AND-SKILL-COMPLIANCE.md` (trigger model, script usage, skill-to-skill)
+

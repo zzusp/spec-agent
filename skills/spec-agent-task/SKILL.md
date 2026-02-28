@@ -48,6 +48,7 @@ Use when the user asks for end-to-end requirement delivery and expects the calle
 
 ## Shared state contract
 
+- **Project root**: The `spec` directory is under the **user’s project (workspace) root** (the CWD when running spec-agent commands), not the plugin repo root. Ensure commands run with the user’s project as current working directory.
 - Requirement workspace: `spec/YYYY-MM-DD/<requirement_name>/`
 - Active pointer: `spec/.active`
 - Global memory: `spec/00-global-memory.md`
@@ -57,7 +58,7 @@ Use when the user asks for end-to-end requirement delivery and expects the calle
 1. Read `spec/00-global-memory.md` and inject global constraints into drafting context.
 2. If current target requirement is not the desired one, switch context via `spec-agent-switch`.
 3. Sync memory snapshot to requirement metadata.
-4. Run init in state-only mode (no template content generation) and pass `project_mode`.
+4. Run init in state-only mode (no template content generation) and pass `project_mode`. (This is the **task-orchestrated** flow; when the user invokes **spec-agent-init** directly, that skill uses empty vs non-empty project logic and may run full init—see `spec-agent-init` SKILL.)
 ```bash
 python scripts/spec_agent.py init --name <name> --title "<title>" --desc "<raw_requirement>" --state-only --project-mode <greenfield|existing>
 ```
@@ -112,12 +113,18 @@ python scripts/spec_agent.py subagent-status --name <name> --json-output
 - then re-review full affected docs and append newly found unclear items to clarifications
   - enforce per-round candidate cap from `spec-agent-clarify` (max 10 new candidates)
   - emit round report fields (`round_id`, `docs_rechecked`, `new_issues_found`, `new_candidates_added`, `high_impact_unresolved_count`, `reopen_count`)
-13. Persist new cross-requirement constraints via `spec-agent-memory`.
+13. Persist **only project-level or user-preference** cross-requirement constraints via `spec-agent-memory`. Do **not** write the current requirement’s scope, description, or conclusion (e.g. “本需求仅变更某 proto”) to global memory; that belongs in requirement docs and clarifications.
 
 ## Output
 
 - Requirement workspace at `spec/YYYY-MM-DD/<name>/` with analysis, PRD, tech, acceptance, clarifications.
 - Active pointer and global memory updated as needed. Stage state and dependency signatures consistent.
+
+## Scope and forbidden actions (must)
+
+- **Output scope**: This skill **only** produces and updates files under the requirement workspace `spec/` (e.g. `01-analysis.md`, `02-prd.md`, `03-tech.md`, `04-acceptance.md`, `00-clarifications.md`, metadata). It does **not** implement or change project source code.
+- **Forbidden**: Do **not** modify project source code (e.g. `.proto` files, application code, config files, dependencies). User requirements like "change field X from float to double" must be captured in the spec documents; code changes happen only **after** docs are closed and the user enters an implementation phase (e.g. TDD / development). **Exception**: temporary scripts (e.g. `.tmp_inspect_db.py` for DB inspection) may be created at project root and **must be deleted after use** per AGENTS.md.
+- If the user text describes a concrete change (e.g. "把 lcia_result 从 float 改为 double") treat it as the **requirement description** for this run: init a requirement, write analysis → prd → tech → acceptance that specify this change; do **not** edit proto or code in this flow.
 
 ## Guardrails
 

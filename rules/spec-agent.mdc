@@ -9,6 +9,13 @@ alwaysApply: false
 
 当你通过 spec-agent 插件撰写或更新上述需求文档时，请遵守以下约定。
 
+## 所有 spec-agent 技能范围（强制）
+
+- **spec 目录位置**：`spec/` 位于**用户项目工程根目录**（运行命令时的当前工作目录 / AI IDE 工作区根目录），而非插件/技能所在仓库根目录。
+- **仅产出/更新 spec 下内容**：所有 spec-agent 技能（如 `/spec-agent-task`、`/spec-agent-write`、`/spec-agent-clarify`、`/spec-agent-chat`、`/spec-agent-update`、`/spec-agent-memory`、`/spec-agent-check`、`/spec-agent-init`、`/spec-agent-switch`）只创建/更新 `spec/` 下的文件（需求文档、全局记忆、元数据、`.active`、`spec/db/` 等），**禁止**修改项目源代码（如 `.proto`、业务代码、配置文件、依赖等）。
+- **临时脚本除外**：为执行约定流程而生成的**临时脚本**（如项目根目录的 `.tmp_inspect_db.py` 用于 DB 探查）允许在需要时创建，**执行完毕后必须删除**；除此之外不得修改工程代码。
+- 用户描述的“把某字段从 float 改为 double”等应作为**需求内容**写入 spec 文档；具体代码修改应在文档收敛后、由实现阶段（或用户另行发起）完成。
+
 ## 文档顺序与依赖
 
 - 文档撰写顺序固定：**analysis** → **prd** → **tech** → **acceptance**；下游文档必须基于上游内容撰写，不得跳步或颠倒。
@@ -19,6 +26,11 @@ alwaysApply: false
 
 - 五份文档（analysis / PRD / tech / acceptance / clarifications）均需包含 **修订记录** 表（修订日期 yyyy-MM-dd、修订人、修订内容摘要）；每次修改任一份文档时，在该文档的修订记录表中追加一行。
 - PRD / tech / acceptance 中必须保留 `<!-- DEPENDENCY-SIGNATURE:START --> ... <!-- DEPENDENCY-SIGNATURE:END -->` 区块，且签名与当前上游内容一致（由脚本或流程更新，勿手改破坏）。
+
+## 全局记忆内容约定
+
+- **用途**：`spec/00-global-memory.md` 仅记录**项目级情况**（如技术栈、部署环境、合规要求）与**用户/团队习惯与约定**（如命名规范、交付口径、「所有需求默认记录操作人与来源 IP」等），供各需求文档撰写时引用。
+- **禁止**：不得将**单次需求的描述、范围或结论**（如「本需求（xxx）：仅变更某 proto」「本需求不修改业务代码」）写入全局记忆；此类内容属于需求文档或澄清文档（`00-clarifications.md`）。
 
 ## 澄清为真源
 

@@ -17,4 +17,4 @@ python scripts/spec_agent.py list
 
 ## Output
 
-- List of requirement paths (e.g. spec/YYYY-MM-DD/<name>). No side effects.
+- List of requirement paths (e.g. `spec/YYYY-MM-DD/<name>`). No side effects.

@@ -49,8 +49,8 @@ Classify each user message into exactly one bucket:
 - Record to `00-clarifications.md/.json`.
 
 2. `memory`
-- Cross-requirement convention/preference/policy/terminology/compliance rule.
-- Record to `spec/00-global-memory.md`.
+- **Only** when the user is stating a **cross-requirement** convention, project constraint, or user/team habit (e.g. “以后所有需求默认都要记录操作人和来源IP”). Record to `spec/00-global-memory.md`.
+- **Do NOT** classify as `memory` when the user is describing the **current requirement’s scope or conclusion** (e.g. “本需求只改 proto”“本需求不修改业务代码”). That is requirement-specific and must go to **clarification** (`00-clarifications.md`), not global memory. Global memory is for **project context and user habits**, not for single-requirement content.
 
 If ambiguous:
 - Ask one short disambiguation question.
@@ -187,3 +187,4 @@ Example style:
 - Do not use removed legacy generation commands.
 - Keep AI-first behavior: caller AI writes document content directly.
 - Use `subagent-*` commands for stage state; do not manually infer stage completion.
+- **Scope**: Only write/update under `spec/` (clarifications, global memory, requirement docs). Do not modify project source code (temporary scripts excepted per AGENTS.md).

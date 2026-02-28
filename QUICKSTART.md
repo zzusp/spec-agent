@@ -4,9 +4,19 @@
 
 ## 在 AI IDE 中使用
 
+### spec-agent-init 使用示例
+
+`spec-agent-init` 用于**初始化项目**的 spec 目录，路径固定为 `spec/0000-00-00/project-spec/`。
+
+- **首次初始化**：`/spec-agent-init 请初始化项目 spec，并生成第一版文档。若名称和标题没给，请自动生成。`
+- **再次执行**：`/spec-agent-init 请根据当前项目更新分析报告、PRD 和系统设计文档。`
+空项目仅创建 spec 骨架；非空项目会生成分析报告、PRD、系统设计（01/02/03），验收与澄清为默认内容。
+
 - `/spec-agent-task 现在产品提了一个新需求，需求如下：……`
 - 若有数据库信息，可同一句里追加（连接地址、库名、只读账号等）。
 - 若要明确澄清策略场景，可说明：`这是从零新建项目` 或 `这是在现有项目上的新增需求`。
+- **注意**：所有 spec-agent 技能（如 `/spec-agent-task`、`/spec-agent-write`、`/spec-agent-clarify` 等）只生成与更新 spec 目录下的文档与状态，**不会**直接修改项目代码（如 .proto、业务代码）；仅允许为执行约定流程而使用的临时脚本（如 DB 探查用脚本），且用后删除。具体实现与代码修改应在文档收敛后、在实现阶段进行。
+- **spec 目录位置**：`spec/` 创建在**用户项目工程根目录**（即运行 spec-agent 命令时的当前工作目录，即 AI IDE 中打开的工作区根目录），而不是插件/技能所在仓库的根目录。请在用户项目根目录下执行脚本（或保证 CWD 为用户项目根）；如需覆盖可使用环境变量 `SPEC_AGENT_PROJECT_ROOT`。
 
 ## 三个最常见场景（可直接复制）
 
@@ -21,6 +31,8 @@
 ### 3. 沉淀全局记忆
 
 `/spec-agent-chat 以后所有需求默认都要记录操作人和来源IP。`
+
+全局记忆用于**项目约定与用户/团队习惯**（如上述「默认记录操作人和来源 IP」），勿将**当前需求的范围或结论**（如「本需求只改 proto」）写入全局记忆；后者应写入澄清或需求文档。
 
 AI 会按流程自动完成：
 
@@ -46,7 +58,7 @@ AI 会按流程自动完成：
 
 ### 用户补充澄清后如何触发更新
 
-1. 打开 `spec/YYYY-MM-DD/<name>/00-clarifications.md`，把确认过的问题状态改为 `已确认`，并补全「用户确认/补充」和「解决方案」。
+1. 打开需求目录下的 `00-clarifications.md`（如使用 spec-agent-init 则为 `spec/0000-00-00/project-spec/00-clarifications.md`，否则为 `spec/YYYY-MM-DD/<name>/00-clarifications.md`），把确认过的问题状态改为 `已确认`，并补全「用户确认/补充」和「解决方案」。
 2. 在 AI IDE 中发送：`/spec-agent-clarify 我已经补充并确认了澄清文档，请基于已确认项重新更新全部文档。` 或 `/spec-agent-clarify 已确认，请更新`。
 3. 若要「有未确认项就先报出来」：`/spec-agent-clarify 按严格模式执行，有未确认项就先报出来。`
 
@@ -64,6 +76,8 @@ AI 会按流程自动完成：
 ### 新需求启动
 
 `/spec-agent-init 这是一个新需求，请初始化并生成第一版完整文档。若名称和标题没给你，请你自动生成。`
+
+调用时使用**固定日期** `0000-00-00`，需求目录为 `spec/0000-00-00/project-spec/`。先判断当前项目是否为空（无源码目录/代码文件）：**空项目**仅初始化 spec 目录骨架（metadata、澄清基线、激活指针）；**非空项目**会初始化完整 spec 并生成分析报告、PRD、系统设计文档（01/02/03 由 AI 根据项目内容填写），验收与澄清文档使用默认模板内容。
 
 ### 文档重生成
 
@@ -111,17 +125,23 @@ AI 会按流程自动完成：
 
 ## 目录结构示例
 
+以下 `spec/` 位于**用户项目工程根目录**下（即工作区根目录，非插件仓库根目录）。使用 **spec-agent-init** 时采用固定日期 `0000-00-00` 与名称 `project-spec`；使用 **spec-agent-task** 或脚本直接 init 时可为当天日期 `YYYY-MM-DD`。
+
 ```text
-spec/
-  2026-02-11/
-    order-refund/
-      00-clarifications.md
-      00-clarifications.json
-      01-analysis.md
-      02-prd.md
-      03-tech.md
-      04-acceptance.md
-      metadata.json
+<用户项目根目录>/
+  spec/
+    0000-00-00/          # spec-agent-init 固定日期与名称
+      project-spec/
+        00-clarifications.md
+        00-clarifications.json
+        01-analysis.md
+        02-prd.md
+        03-tech.md
+        04-acceptance.md
+        metadata.json
+    YYYY-MM-DD/          # 或按日期（如 task 编排 / 脚本未指定 --date）
+      <name>/
+        ...
 ```
 
 ## 回归测试
@@ -140,7 +160,7 @@ python scripts/regression_split_skill_contract.py
 
 ## 配置
 
-配置文件：`scripts/spec-agent.config.json`。常用项：`spec_dir`、`date_format`、`dry_run_default`、`default_project_mode`（`greenfield`/`existing`）、`clarify_statuses`、`clarify_confirmed_status`、`rules_copy_allowlist`、各类 lock 超时与轮询参数。
+配置文件：`scripts/spec-agent.config.json`（由插件脚本所在目录加载）。常用项：`spec_dir`（相对**用户项目根**，默认 `spec`）、`date_format`、`dry_run_default`、`default_project_mode`（`greenfield`/`existing`）、`clarify_statuses`、`clarify_confirmed_status`、`rules_copy_allowlist`、各类 lock 超时与轮询参数。用户项目根默认为运行脚本时的当前工作目录（CWD），可通过环境变量 `SPEC_AGENT_PROJECT_ROOT` 覆盖。
 
 ## 故障排查
 

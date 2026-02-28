@@ -54,9 +54,10 @@ By name:
 python scripts/spec_agent.py set-active --name <name>
 ```
 
-By path:
+By path (e.g. spec-agent-init uses `spec/0000-00-00/project-spec`):
 ```bash
-python scripts/spec_agent.py set-active --path spec/YYYY-MM-DD/<name>
+python scripts/spec_agent.py set-active --path spec/0000-00-00/project-spec
+# or spec/YYYY-MM-DD/<name>
 ```
 
 ## Output
@@ -67,3 +68,4 @@ python scripts/spec_agent.py set-active --path spec/YYYY-MM-DD/<name>
 
 - Do not mutate requirement docs in this skill.
 - Only change `spec/.active` context.
+- **Scope**: Only update `spec/.active`. Do not modify project source code or any other files (temporary scripts excepted per AGENTS.md).

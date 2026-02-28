@@ -41,3 +41,4 @@ Use when the user **explicitly** asks to revise specific document(s) or section(
 ## Guardrails
 
 - Do not call `update` command for content generation in AI-first mode.
+- **Scope**: Only update files under `spec/` (requirement docs). Do not modify project source code (temporary scripts excepted per AGENTS.md).

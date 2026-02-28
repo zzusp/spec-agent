@@ -1,6 +1,6 @@
 # spec-agent
 
-spec-agent 是一套面向 AI IDE 的需求文档工作流：把原始需求转成可持续迭代的文档集，并通过澄清闭环持续更新。产出包括分析报告、PRD、技术方案、验收清单以及澄清文档（`00-clarifications.md` / `.json`），默认输出到 `spec/YYYY-MM-DD/<requirement_name>/`。
+spec-agent 是一套面向 AI IDE 的需求文档工作流：把原始需求转成可持续迭代的文档集，并通过澄清闭环持续更新。产出包括分析报告、PRD、技术方案、验收清单以及澄清文档（`00-clarifications.md` / `.json`），输出到 `spec/YYYY-MM-DD/<requirement_name>/`。
 
 ## 工作方式
 
@@ -41,7 +41,7 @@ spec-agent 是一套面向 AI IDE 的需求文档工作流：把原始需求转�
 | Skill | Description |
 |:------|:------------|
 | `spec-agent-task` | 统一编排入口：从原始需求到完整文档集，含阶段子代理与澄清闭环 |
-| `spec-agent-init` | 初始化需求工作区状态（目录、metadata、激活指针） |
+| `spec-agent-init` | 初始化需求工作区：固定日期与路径 `spec/0000-00-00/project-spec/`；空项目仅建骨架，非空项目建完整 spec 并生成分析/PRD/技术方案（验收与澄清为默认内容） |
 | `spec-agent-write` | 由调用端 AI 直接撰写 analysis / PRD / tech / acceptance 四份文档 |
 | `spec-agent-update` | 通用文档重写（非澄清专项） |
 | `spec-agent-clarify` | 基于已确认澄清项重写文档：结合澄清重新设计整份文档、整体回顾矛盾与更优实现，需用户确认的追加到澄清；多轮收敛 |

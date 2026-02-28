@@ -16,8 +16,12 @@ from contextlib import contextmanager
 from urllib.parse import unquote, urlparse
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[1]
-CONFIG_FILE = ROOT / "scripts" / "spec-agent.config.json"
+# Plugin/repo root: where this script lives (for loading config).
+SCRIPT_ROOT = Path(__file__).resolve().parents[1]
+CONFIG_FILE = SCRIPT_ROOT / "scripts" / "spec-agent.config.json"
+# User project root: where spec/ is created. Default = CWD when invoking the script; override with env SPEC_AGENT_PROJECT_ROOT.
+_PROJECT_ROOT_ENV = os.environ.get("SPEC_AGENT_PROJECT_ROOT", "").strip()
+PROJECT_ROOT = Path(_PROJECT_ROOT_ENV).resolve() if _PROJECT_ROOT_ENV else Path.cwd()
 RUNTIME_JSON_OUTPUT = False
 METADATA_VERSION_KEY = "_meta_version"
 AI_DB_CONNECTIONS_KEY = "ai_db_connections"
@@ -356,7 +360,7 @@ validate_config(CONFIG)
 
 SPEC_DIR = Path(CONFIG["spec_dir"]).expanduser()
 if not SPEC_DIR.is_absolute():
-    SPEC_DIR = ROOT / SPEC_DIR
+    SPEC_DIR = PROJECT_ROOT / SPEC_DIR
 ACTIVE_FILE = SPEC_DIR / ".active"
 GLOBAL_MEMORY_FILE = SPEC_DIR / "00-global-memory.md"
 
@@ -986,7 +990,7 @@ def parse_requirement_input(args) -> str:
 
     fp = Path(args.desc_file)
     if not fp.is_absolute():
-        fp = (ROOT / fp).resolve()
+        fp = (PROJECT_ROOT / fp).resolve()
     if not fp.exists():
         raise SystemExit(f"desc file not found: {fp}")
     raw = fp.read_text(encoding="utf-8-sig")
@@ -1704,7 +1708,7 @@ def write_global_db_schema(slug: str, full_content: str, dry_run: bool = False) 
     """将全量 schema 写入 spec/db/{slug}-schema.md；目录不存在则创建。"""
     if not slug or not full_content:
         return
-    dir_path = ROOT / DB_SCHEMA_DIR
+    dir_path = SPEC_DIR / "db"
     file_path = dir_path / f"{slug}-schema.md"
     if dry_run:
         runtime_log(f"[dry-run] would write global db schema: {file_path}")
@@ -1718,7 +1722,7 @@ def write_global_db_ddl(slug: str, ddl_sql: str, dry_run: bool = False) -> None:
     """将全量 DDL SQL 写入 spec/db/{slug}-ddl.sql；脚本输出含 ddl_sql 时调用。"""
     if not slug or not (ddl_sql and ddl_sql.strip()):
         return
-    dir_path = ROOT / DB_SCHEMA_DIR
+    dir_path = SPEC_DIR / "db"
     file_path = dir_path / f"{slug}-ddl.sql"
     if dry_run:
         runtime_log(f"[dry-run] would write global db ddl: {file_path}")
@@ -1767,7 +1771,7 @@ def run_inspect_db_script(
     输出：stdout 为 JSON 对象 {"results": [...], "ddl_sql": "可选，全量 DDL SQL 字符串"}。
     成功返回 (块正文字符串, ddl_sql 或 None)；脚本不存在、执行失败或输出格式错误时返回 (None, None)。
     """
-    script_path = (ROOT / TEMP_INSPECT_DB_SCRIPT).resolve()
+    script_path = (PROJECT_ROOT / TEMP_INSPECT_DB_SCRIPT).resolve()
     if not script_path.is_file():
         return (None, None)
     delete_after = True
@@ -1775,7 +1779,7 @@ def run_inspect_db_script(
     try:
         proc = subprocess.run(
             [sys.executable, str(script_path)],
-            cwd=str(ROOT),
+            cwd=str(PROJECT_ROOT),
             input=payload,
             capture_output=True,
             text=True,
@@ -1898,7 +1902,7 @@ def scan_modules() -> list[str]:
         try:
             proc = subprocess.run(
                 cmd,
-                cwd=str(ROOT),
+                cwd=str(PROJECT_ROOT),
                 capture_output=True,
                 text=True,
                 check=False,
@@ -1918,12 +1922,12 @@ def scan_modules() -> list[str]:
         except (OSError, subprocess.SubprocessError):
             pass
 
-    for path in ROOT.rglob("*"):
+    for path in PROJECT_ROOT.rglob("*"):
         if path.is_dir():
             continue
         if path.suffix.lower() not in exts:
             continue
-        parts = path.relative_to(ROOT).parts
+        parts = path.relative_to(PROJECT_ROOT).parts
         if not parts:
             continue
         top = parts[0]

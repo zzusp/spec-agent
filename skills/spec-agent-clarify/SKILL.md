@@ -148,3 +148,4 @@ After each round, output:
 ## Guardrails
 
 - Do not call `clarify` or `update` commands for content generation in AI-first mode.
+- **Scope**: Only update files under `spec/` (requirement docs, clarifications). Do not modify project source code (temporary scripts excepted per AGENTS.md).

@@ -13,8 +13,10 @@ Set active requirement. Run from repository root.
 ```bash
 python scripts/spec_agent.py set-active --name <name>
 ```
-2. By path:
+2. By path (e.g. spec-agent-init uses `spec/0000-00-00/project-spec`):
 ```bash
+python scripts/spec_agent.py set-active --path spec/0000-00-00/project-spec
+# or
 python scripts/spec_agent.py set-active --path spec/YYYY-MM-DD/<name>
 ```
 3. Confirm active path (e.g. via `list` or next command). See AGENTS.md Command contract.

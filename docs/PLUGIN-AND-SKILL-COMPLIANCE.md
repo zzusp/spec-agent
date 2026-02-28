@@ -47,7 +47,7 @@
 
 - **规范**：Plugin 可将“可由 Agent 执行的命令”放在 `commands/` 目录，每文件为 `.md`/`.mdc`/`.txt`，含 frontmatter `name`、`description` 及正文步骤；Cursor 会做组件发现并供 Agent/用户发现与执行。
 - **当前**：`commands/` 下提供 6 个命令文件，对应 `spec_agent.py` 常用子命令：
-  - `spec-init`：初始化需求工作区
+  - `spec-init`：初始化需求工作区（由 spec-agent-init 调用时使用固定日期与名称，路径 `spec/0000-00-00/project-spec/`；空项目 state-only，非空项目 full init 后 caller 填写 01/02/03，见 `skills/spec-agent-init/SKILL.md`）
   - `spec-final-check`：对当前/指定需求做终检
   - `spec-check-clarifications`：检查待确认澄清数量（可 `--strict` 作门禁）
   - `spec-set-active`：设置当前活跃需求

@@ -192,10 +192,11 @@ def cmd_final_check(args):
 
 def cmd_copy_rules(args):
     dry_run = eng.is_dry_run(args)
-    dest = Path(args.dest) if args.dest else (eng.ROOT / ".cursor" / "rules")
+    # Default dest: user project root's .cursor/rules; src: plugin's rules (SCRIPT_ROOT).
+    dest = Path(args.dest) if args.dest else (eng.PROJECT_ROOT / ".cursor" / "rules")
     if not dry_run:
         dest.mkdir(parents=True, exist_ok=True)
-    src = eng.ROOT / "rules"
+    src = eng.SCRIPT_ROOT / "rules"
     allowlist = eng.CONFIG.get("rules_copy_allowlist") or []
     copied_count = 0
     for item in src.glob("*.mdc"):
