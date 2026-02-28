@@ -470,14 +470,118 @@ def test_inspect_db_inserts_marker_and_masks_secret():
         updated = analysis_path.read_text(encoding="utf-8")
         if "<!-- DB-SCHEMA:START -->" not in updated or "<!-- DB-SCHEMA:END -->" not in updated:
             raise RuntimeError("inspect-db should insert DB-SCHEMA marker block for legacy analysis docs")
-        if "sqlite tables:" not in updated:
-            raise RuntimeError(f"inspect-db should inspect sqlite schema: {updated}")
+        # 方式 B：无脚本时写入提示，不执行内置探查
+        if "未提供 DB 探查临时脚本" not in updated and ".tmp_inspect_db.py" not in updated:
+            raise RuntimeError(f"inspect-db without script should write script-required message: {updated[:600]}")
         if "secret123" in updated:
             raise RuntimeError("inspect-db output should not expose plaintext credentials")
     finally:
         remove_dir(req_dir)
         if db.exists():
             db.unlink()
+
+
+def test_inspect_db_script_preferred():
+    """方式 B：全量 schema 写入 spec/db/{slug}-schema.md，analysis 仅写引用行。"""
+    req = "edge-inspect-db-script"
+    date = dt.date.today().strftime("%Y-%m-%d")
+    req_dir = ROOT / "spec" / date / req
+    script_path = ROOT / ".tmp_inspect_db.py"
+    global_schema = ROOT / "spec" / "db" / "sqlite-any.db-schema.md"
+    remove_dir(req_dir)
+    try:
+        run([
+            "init",
+            "--name",
+            req,
+            "--title",
+            "inspect-db 脚本优先",
+            "--desc",
+            "需求含 DB 连接",
+            "--db-connections-json",
+            json.dumps([{"db_type": "sqlite", "connection": "sqlite:///any.db", "source": "test"}]),
+            "--date",
+            date,
+        ])
+        script_path.write_text(
+            "import json,sys\n"
+            "d=json.load(sys.stdin)\n"
+            "print(json.dumps({\"results\":[{\"connection\":\"custom-script-demo\",\"ok\":True,\"message\":\"script tables: 1\",\"tables\":{\"t_demo\":[\"id\",\"name\"]}}]},ensure_ascii=False))",
+            encoding="utf-8",
+        )
+        analysis_path = req_dir / "01-analysis.md"
+        legacy = analysis_path.read_text(encoding="utf-8")
+        legacy = legacy.replace("<!-- DB-SCHEMA:START -->\n", "").replace("\n<!-- DB-SCHEMA:END -->", "")
+        analysis_path.write_text(legacy, encoding="utf-8")
+        run(["inspect-db", "--name", req])
+        updated = analysis_path.read_text(encoding="utf-8")
+        if "本需求涉及表详见" not in updated or "schema 文档" not in updated or "spec/db/" not in updated:
+            raise RuntimeError(f"inspect-db should write reference line in analysis: {updated[:500]}")
+        if not global_schema.exists():
+            raise RuntimeError(f"inspect-db should write full schema to {global_schema}")
+        global_content = global_schema.read_text(encoding="utf-8")
+        if "script tables: 1" not in global_content or "表 `t_demo`" not in global_content:
+            raise RuntimeError(f"global schema file should contain script output: {global_content[:500]}")
+    finally:
+        if script_path.exists():
+            script_path.unlink()
+        if global_schema.exists():
+            global_schema.unlink()
+        remove_dir(req_dir)
+        if (ROOT / "spec" / "db").exists() and not any((ROOT / "spec" / "db").iterdir()):
+            (ROOT / "spec" / "db").rmdir()
+
+
+def test_inspect_db_script_file_deleted_after_run():
+    """临时脚本执行后被删除；全量写入 spec/db，analysis 仅引用。"""
+    req = "edge-inspect-db-temp-script"
+    date = dt.date.today().strftime("%Y-%m-%d")
+    req_dir = ROOT / "spec" / date / req
+    temp_script = ROOT / ".tmp_inspect_db.py"
+    global_schema = ROOT / "spec" / "db" / "sqlite-any.db-schema.md"
+    remove_dir(req_dir)
+    try:
+        run([
+            "init",
+            "--name",
+            req,
+            "--title",
+            "inspect-db 临时脚本",
+            "--desc",
+            "需求含 DB 连接",
+            "--db-connections-json",
+            json.dumps([{"db_type": "sqlite", "connection": "sqlite:///any.db", "source": "test"}]),
+            "--date",
+            date,
+        ])
+        try:
+            temp_script.write_text(
+                "import json,sys\n"
+                "d=json.load(sys.stdin)\n"
+                "print(json.dumps({\"results\":[{\"connection\":\"temp-script\",\"ok\":True,\"message\":\"temp script ran\",\"tables\":{\"t1\":[\"a\"]}}]},ensure_ascii=False))",
+                encoding="utf-8",
+            )
+            analysis_path = req_dir / "01-analysis.md"
+            legacy = analysis_path.read_text(encoding="utf-8")
+            legacy = legacy.replace("<!-- DB-SCHEMA:START -->\n", "").replace("\n<!-- DB-SCHEMA:END -->", "")
+            analysis_path.write_text(legacy, encoding="utf-8")
+            run(["inspect-db", "--name", req])
+            if temp_script.exists():
+                raise RuntimeError(f"temp script should be deleted after inspect-db: {temp_script}")
+            updated = analysis_path.read_text(encoding="utf-8")
+            if "本需求涉及表详见" not in updated or "spec/db/" not in updated:
+                raise RuntimeError(f"inspect-db should write reference in analysis: {updated[:500]}")
+            if global_schema.exists() and "temp script ran" not in global_schema.read_text(encoding="utf-8"):
+                raise RuntimeError("global schema file should contain script output")
+        finally:
+            if temp_script.exists():
+                temp_script.unlink()
+            if global_schema.exists():
+                global_schema.unlink()
+    finally:
+        remove_dir(req_dir)
+        if (ROOT / "spec" / "db").exists() and not any((ROOT / "spec" / "db").iterdir()):
+            (ROOT / "spec" / "db").rmdir()
 
 
 def test_add_clarifications_rebuild_without_crash():
@@ -615,6 +719,8 @@ def main():
         test_init_rejects_multiple_desc_sources()
         test_scan_includes_scripts_module()
         test_inspect_db_inserts_marker_and_masks_secret()
+        test_inspect_db_script_preferred()
+        test_inspect_db_script_file_deleted_after_run()
         test_add_clarifications_rebuild_without_crash()
         test_copy_rules_json_output_single_payload()
         test_check_clarifications_md_source_and_json_error_output()

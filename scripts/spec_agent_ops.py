@@ -1,4 +1,4 @@
-﻿#!/usr/bin/env python
+#!/usr/bin/env python
 from __future__ import annotations
 
 import argparse
@@ -256,10 +256,26 @@ def cmd_inspect_db(args):
         connections = provided_connections
     else:
         connections = eng.load_ai_db_connections(path)
-    summary = eng.build_db_schema_summary(eng.ai_db_connection_strings(connections))
+    connection_strings = eng.ai_db_connection_strings(connections)
+    # 方式 B：执行临时脚本得到全量 schema（及可选 ddl_sql），写入 spec/db/{slug}-schema.md 与可选的 -ddl.sql，analysis 仅写引用行
+    summary, ddl_sql = eng.run_inspect_db_script(path, connection_strings)
+    if summary is None:
+        if not connection_strings:
+            block = "- 未提供结构化数据库连接信息；请由调用端 AI 识别后通过 `--db-connections-json` 传入。"
+        else:
+            block = "- 未提供 DB 探查临时脚本或脚本执行失败；请由 AI 在项目根目录生成临时脚本并重试。"
+    else:
+        slug = eng.get_db_schema_slug(connection_strings[0]) if connection_strings else None
+        if slug:
+            eng.write_global_db_schema(slug, summary, dry_run=dry_run)
+            if ddl_sql:
+                eng.write_global_db_ddl(slug, ddl_sql, dry_run=dry_run)
+            block = eng.get_db_schema_reference_line(slug, has_ddl=bool(ddl_sql))
+        else:
+            block = summary
     if dry_run:
         content = eng.read_file(analysis_path)
-        updated = eng.replace_db_schema_block(content, summary)
+        updated = eng.replace_db_schema_block(content, block)
         if updated != content:
             eng.runtime_log(f"[dry-run] would update db schema block: {analysis_path}")
     else:
@@ -269,7 +285,7 @@ def cmd_inspect_db(args):
                 meta[eng.AI_DB_CONNECTIONS_KEY] = provided_connections
                 eng.save_metadata_file(path, meta, dry_run=False, expected_version=meta_version)
             content = eng.read_file(analysis_path)
-            updated = eng.replace_db_schema_block(content, summary)
+            updated = eng.replace_db_schema_block(content, block)
             if updated != content:
                 eng.write_file(analysis_path, updated)
     eng.emit(args, f"db inspected connections: {len(connections)}", connections=len(connections), path=str(analysis_path))

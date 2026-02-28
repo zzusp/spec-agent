@@ -9,7 +9,6 @@ import json
 import os
 import re
 import shutil
-import sqlite3
 import subprocess
 import sys
 import time
@@ -95,6 +94,11 @@ DB_SCHEMA_START = "<!-- DB-SCHEMA:START -->"
 DB_SCHEMA_END = "<!-- DB-SCHEMA:END -->"
 DEP_SIG_START = "<!-- DEPENDENCY-SIGNATURE:START -->"
 DEP_SIG_END = "<!-- DEPENDENCY-SIGNATURE:END -->"
+
+# 方式 B：AI 生成的临时 DB 探查脚本，固定写在项目根目录，用完即删
+TEMP_INSPECT_DB_SCRIPT = ".tmp_inspect_db.py"
+# 全量 DB schema 公共存储目录（相对项目根），按库一个文件：spec/db/postgres-hiq_admin-schema.md
+DB_SCHEMA_DIR = "spec/db"
 
 # 修订记录表：修订日期(yyyy-MM-dd)、修订人、修订内容摘要
 REVISION_TABLE_HEADER = "| 修订日期 | 修订人 | 修订内容摘要 |"
@@ -1666,159 +1670,150 @@ def redact_sensitive_connection(conn: str) -> str:
     return redacted
 
 
-def inspect_sqlite_schema(conn: str):
-    parsed = urlparse(conn)
-    if parsed.scheme != "sqlite":
+def get_db_schema_slug(uri: str) -> str | None:
+    """从连接 URI 得到全局 schema 文件名前缀，如 postgres-hiq_admin、mysql-mydb。
+    用于 spec/db/{slug}-schema.md。
+    """
+    if not uri or not isinstance(uri, str):
         return None
-    raw_path = unquote(parsed.path or "")
-    if parsed.netloc and parsed.netloc not in {"localhost"}:
-        raw_path = f"//{parsed.netloc}{raw_path}"
-    if not raw_path:
-        return {"connection": conn, "ok": False, "message": "sqlite path missing"}
-
-    if raw_path.startswith("//"):
-        path = Path("/" + raw_path.lstrip("/"))
-    elif raw_path.startswith("/"):
-        rel_candidate = Path(raw_path.lstrip("/"))
-        abs_candidate = Path(raw_path)
-        if abs_candidate.exists() and not rel_candidate.exists():
-            path = abs_candidate
-        else:
-            path = (ROOT / rel_candidate).resolve()
-    else:
-        path = Path(raw_path)
-        if not path.is_absolute():
-            path = (ROOT / path).resolve()
-    if not path.exists():
-        return {"connection": conn, "ok": False, "message": f"sqlite file not found: {path}"}
-    try:
-        con = sqlite3.connect(str(path))
-        cur = con.cursor()
-        cur.execute("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")
-        tables = [r[0] for r in cur.fetchall()]
-        table_columns = {}
-        for t in tables:
-            safe_t = t.replace("'", "''")
-            cur.execute(f"PRAGMA table_info('{safe_t}')")
-            cols = [row[1] for row in cur.fetchall()]
-            table_columns[t] = cols
-        con.close()
-        return {
-            "connection": conn,
-            "ok": True,
-            "message": f"sqlite tables: {len(tables)}",
-            "tables": table_columns,
-        }
-    except sqlite3.Error as ex:
-        return {"connection": conn, "ok": False, "message": f"sqlite inspect failed: {ex}"}
-
-
-def inspect_mysql_schema(conn: str):
-    parsed = urlparse(conn)
-    if parsed.scheme not in ("mysql",):
+    parsed = urlparse(uri.strip())
+    scheme = (parsed.scheme or "").lower()
+    scheme = DB_TYPE_ALIASES.get(scheme, scheme) or scheme
+    db = (parsed.path or "").strip("/").split("/")[0].strip()
+    if not db and scheme == "sqlite":
+        db = (unquote(parsed.path or "") or "").split("/")[-1].replace(".", "_")
+    if not scheme or not db:
         return None
-    if not shutil.which("mysql"):
-        return {"connection": conn, "ok": False, "message": "mysql client not found"}
-    host = parsed.hostname or "127.0.0.1"
-    port = str(parsed.port or 3306)
-    user = parsed.username or ""
-    password = parsed.password or ""
-    db = (parsed.path or "").lstrip("/")
-    if not db:
-        return {"connection": conn, "ok": False, "message": "mysql database name missing"}
-    cmd = ["mysql", "-h", host, "-P", port, "-N", "-D", db]
-    if user:
-        cmd.extend(["-u", user])
-    cmd.extend(["-e", "SHOW TABLES;"])
-    env = os.environ.copy()
-    if password:
-        env["MYSQL_PWD"] = password
-    try:
-        proc = subprocess.run(cmd, capture_output=True, text=True, check=False, env=env)
-        if proc.returncode != 0:
-            return {"connection": conn, "ok": False, "message": f"mysql inspect failed: {proc.stderr.strip()}"}
-        tables = [ln.strip() for ln in proc.stdout.splitlines() if ln.strip()]
-        return {"connection": conn, "ok": True, "message": f"mysql tables: {len(tables)}", "tables": {t: [] for t in tables}}
-    except (OSError, subprocess.SubprocessError) as ex:
-        return {"connection": conn, "ok": False, "message": f"mysql inspect failed: {ex}"}
+    return f"{scheme}-{db}"
 
 
-def inspect_postgres_schema(conn: str):
-    parsed = urlparse(conn)
-    if parsed.scheme not in ("postgres", "postgresql"):
-        return None
-    if not shutil.which("psql"):
-        return {"connection": conn, "ok": False, "message": "psql client not found"}
-    db = (parsed.path or "").lstrip("/")
-    if not db:
-        return {"connection": conn, "ok": False, "message": "postgres database name missing"}
-    env = os.environ.copy()
-    if parsed.password:
-        env["PGPASSWORD"] = parsed.password
-    cmd = [
-        "psql",
-        "-h",
-        parsed.hostname or "127.0.0.1",
-        "-p",
-        str(parsed.port or 5432),
-        "-U",
-        parsed.username or "postgres",
-        "-d",
-        db,
-        "-At",
-        "-c",
-        "select tablename from pg_tables where schemaname='public' order by tablename;",
-    ]
-    try:
-        proc = subprocess.run(cmd, capture_output=True, text=True, check=False, env=env)
-        if proc.returncode != 0:
-            return {"connection": conn, "ok": False, "message": f"postgres inspect failed: {proc.stderr.strip()}"}
-        tables = [ln.strip() for ln in proc.stdout.splitlines() if ln.strip()]
-        return {"connection": conn, "ok": True, "message": f"postgres tables: {len(tables)}", "tables": {t: [] for t in tables}}
-    except (OSError, subprocess.SubprocessError) as ex:
-        return {"connection": conn, "ok": False, "message": f"postgres inspect failed: {ex}"}
+def get_db_schema_reference_line(slug: str, has_ddl: bool = False) -> str:
+    """生成 analysis 中「数据库现状」块的引用行；若 has_ddl 为 True 则追加全量 DDL 文件链接。"""
+    if not slug:
+        return ""
+    display = slug.split("-", 1)[-1] if "-" in slug else slug
+    path = f"{DB_SCHEMA_DIR}/{slug}-schema.md"
+    line = f"本需求涉及表详见 [{display} schema 文档]({path})。"
+    if has_ddl:
+        ddl_path = f"{DB_SCHEMA_DIR}/{slug}-ddl.sql"
+        line += f" 全量 DDL 见 [{display}-ddl.sql]({ddl_path})。"
+    return line
 
 
-def build_db_schema_summary(connections: list[str]):
-    if not connections:
+def write_global_db_schema(slug: str, full_content: str, dry_run: bool = False) -> None:
+    """将全量 schema 写入 spec/db/{slug}-schema.md；目录不存在则创建。"""
+    if not slug or not full_content:
+        return
+    dir_path = ROOT / DB_SCHEMA_DIR
+    file_path = dir_path / f"{slug}-schema.md"
+    if dry_run:
+        runtime_log(f"[dry-run] would write global db schema: {file_path}")
+        return
+    dir_path.mkdir(parents=True, exist_ok=True)
+    header = f"<!-- 采集时间 {dt.datetime.now().strftime('%Y-%m-%d %H:%M')} -->\n\n"
+    write_file(file_path, header + full_content)
+
+
+def write_global_db_ddl(slug: str, ddl_sql: str, dry_run: bool = False) -> None:
+    """将全量 DDL SQL 写入 spec/db/{slug}-ddl.sql；脚本输出含 ddl_sql 时调用。"""
+    if not slug or not (ddl_sql and ddl_sql.strip()):
+        return
+    dir_path = ROOT / DB_SCHEMA_DIR
+    file_path = dir_path / f"{slug}-ddl.sql"
+    if dry_run:
+        runtime_log(f"[dry-run] would write global db ddl: {file_path}")
+        return
+    dir_path.mkdir(parents=True, exist_ok=True)
+    header = f"-- 采集时间 {dt.datetime.now().strftime('%Y-%m-%d %H:%M')}\n\n"
+    write_file(file_path, header + ddl_sql.strip())
+
+
+def format_db_schema_results(results: list[dict]) -> str:
+    """将脚本输出的 results 列表格式化为 db-schema 块正文（与 build_db_schema_summary 输出一致）。
+    每个 result 需含 connection, ok, message，可选：
+    - tables（表名 -> 列信息字符串列表）
+    - table_comments（表名 -> 表注释）
+    """
+    if not results:
         return "- 未提供结构化数据库连接信息；请由调用端 AI 识别后通过 `--db-connections-json` 传入。"
     lines = []
-    for conn in connections:
-        safe_conn = redact_sensitive_connection(conn)
-        if conn.startswith("sqlite://"):
-            result = inspect_sqlite_schema(conn)
-            if not result:
-                lines.append(f"- {safe_conn}：不支持的连接格式")
-                continue
-            if not result["ok"]:
-                lines.append(f"- {safe_conn}：{result['message']}")
-                continue
-            lines.append(f"- {safe_conn}：{result['message']}")
-            tables = result.get("tables", {})
+    for r in results:
+        conn = r.get("connection", "")
+        safe_conn = redact_sensitive_connection(conn) if isinstance(conn, str) else str(conn)
+        msg = r.get("message", "")
+        lines.append(f"- {safe_conn}：{msg}")
+        if not r.get("ok"):
+            continue
+        tables = r.get("tables")
+        table_comments = r.get("table_comments") if isinstance(r.get("table_comments"), dict) else {}
+        if isinstance(tables, dict):
             for t, cols in tables.items():
-                col_text = "、".join(cols[:12]) if cols else "无字段"
-                lines.append(f"  - 表 `{t}` 字段：{col_text}")
-        elif conn.startswith("mysql://"):
-            result = inspect_mysql_schema(conn)
-            if not result:
-                lines.append(f"- {safe_conn}：不支持的连接格式")
-                continue
-            lines.append(f"- {safe_conn}：{result['message']}")
-            if result.get("ok"):
-                for t in result.get("tables", {}).keys():
-                    lines.append(f"  - 表 `{t}`")
-        elif conn.startswith("postgres://") or conn.startswith("postgresql://"):
-            result = inspect_postgres_schema(conn)
-            if not result:
-                lines.append(f"- {safe_conn}：不支持的连接格式")
-                continue
-            lines.append(f"- {safe_conn}：{result['message']}")
-            if result.get("ok"):
-                for t in result.get("tables", {}).keys():
-                    lines.append(f"  - 表 `{t}`")
-        else:
-            lines.append(f"- {safe_conn}：暂不支持自动探查（建议调用端按连接执行 schema 查询后回填）。")
+                comment = str(table_comments.get(t, "")).strip() if table_comments else ""
+                comment_text = f"（注释：{comment}）" if comment else ""
+                col_list = cols if isinstance(cols, list) else []
+                col_text = "、".join([str(c) for c in col_list[:12]]) if col_list else "无字段"
+                lines.append(f"  - 表 `{t}`{comment_text} 字段：{col_text}")
     return "\n".join(lines)
+
+
+def run_inspect_db_script(
+    req_path: Path,
+    connection_strings: list[str],
+    script_file: Path | str | None = None,
+) -> tuple[str | None, str | None]:
+    """执行 DB 探查脚本（方式 B 契约），用其输出生成 db-schema 块正文及可选全量 DDL。
+    使用项目根目录下的固定临时脚本文件（TEMP_INSPECT_DB_SCRIPT），执行完毕后删除该文件。
+    输入：stdin 接收 JSON 对象 {"connections": [uri, ...]}。
+    输出：stdout 为 JSON 对象 {"results": [...], "ddl_sql": "可选，全量 DDL SQL 字符串"}。
+    成功返回 (块正文字符串, ddl_sql 或 None)；脚本不存在、执行失败或输出格式错误时返回 (None, None)。
+    """
+    script_path = (ROOT / TEMP_INSPECT_DB_SCRIPT).resolve()
+    if not script_path.is_file():
+        return (None, None)
+    delete_after = True
+    payload = json.dumps({"connections": connection_strings}, ensure_ascii=False)
+    try:
+        proc = subprocess.run(
+            [sys.executable, str(script_path)],
+            cwd=str(ROOT),
+            input=payload,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            timeout=120,
+        )
+    except (OSError, subprocess.SubprocessError, ValueError) as _:
+        if delete_after and script_path.exists():
+            try:
+                script_path.unlink()
+            except OSError:
+                pass
+        return (None, None)
+    if delete_after and script_path.exists():
+        try:
+            script_path.unlink()
+        except OSError:
+            pass
+    if proc.returncode != 0:
+        return (None, None)
+    out = (proc.stdout or "").strip()
+    if not out:
+        return (None, None)
+    try:
+        data = json.loads(out)
+    except (json.JSONDecodeError, TypeError):
+        return (None, None)
+    results = data.get("results")
+    if not isinstance(results, list):
+        return (None, None)
+    for r in results:
+        if not isinstance(r, dict) or "ok" not in r:
+            return (None, None)
+    summary = format_db_schema_results(results)
+    ddl_sql = data.get("ddl_sql")
+    if not isinstance(ddl_sql, str) or not ddl_sql.strip():
+        ddl_sql = None
+    return (summary, ddl_sql)
 
 
 def replace_scan_block(content: str, block: str):

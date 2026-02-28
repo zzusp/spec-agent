@@ -30,6 +30,12 @@ Use when the workspace is initialized and docs must be drafted (analysis, PRD, t
 - `04-acceptance.md`
 - `00-clarifications.md`
 
+## DB 探查脚本（方式 B）
+
+- 当需求或 metadata 中存在数据库连接信息时，**分析阶段**由 AI 生成**临时**脚本用于获取库表结构，遵循 AGENTS.md「DB 探查脚本契约」：从 stdin 读入 `{"connections": [...]}`，向 stdout 输出 `{"results": [{connection, ok, message, tables?}, ...]}`，可选 `"ddl_sql": "全量 DDL SQL 字符串"`。
+- 推荐流程：AI 生成脚本内容 → 写入项目根目录固定文件 `./.tmp_inspect_db.py` → 调用 `inspect-db`（及 `--name`、必要时 `--db-connections-json`），获取到表信息后**临时脚本会被自动删除**。全量表结构会写入公共文档 `spec/db/{scheme}-{dbname}-schema.md`；若脚本输出 `ddl_sql`，则同时写入 `spec/db/{scheme}-{dbname}-ddl.sql`，analysis 引用行会包含「全量 DDL 见 xxx-ddl.sql」。
+- 脚本由 AI 按连接类型（sqlite/mysql/postgres 等）选择合适的驱动与实现；建议同时输出表注释与字段注释（`table_comments` + `列名:类型（注释：...）`）；缺驱动时在 message 中给出安装建议（如 `pip install pymysql`）。需要全量 DDL 时：PostgreSQL 可在脚本内用 `pg_dump --schema-only` 子进程获取，MySQL 可用 `SHOW CREATE TABLE` 拼接后放入 `ddl_sql`。
+
 ## 修订记录 (must)
 
 - 每次创建或更新任一文档（`01-analysis.md`、`02-prd.md`、`03-tech.md`、`04-acceptance.md`、`00-clarifications.md`）时，必须在该文档的 **修订记录** 表中追加一行：**修订日期**（yyyy-MM-dd）、**修订人**（如阶段 agent 名或「初始化」）、**修订内容摘要**（简要说明当次修改）。文档模板已包含「## 修订记录」表头与分隔符，只需在表体追加新行。

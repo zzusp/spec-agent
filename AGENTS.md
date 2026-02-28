@@ -99,11 +99,15 @@ When applying confirmed clarifications to any of the four docs (analysis / PRD /
 - If requirement or clarification includes DB connection string or connection-file path:
   - analysis phase must inspect schema context,
   - connection evidence should be recorded in clarifications.
-- `inspect-db` auto-inspects:
-  - `sqlite://` directly,
-  - `mysql://` with local `mysql` client,
-  - `postgres://` / `postgresql://` with local `psql` client,
-  - otherwise output guided fallback message.
+- **方式 B（DB 探查脚本）**：获取数据库表结构时，由 AI 在**项目根目录**生成固定文件名的**临时**脚本（见下），用于连接并取表信息；调用 `inspect-db` 执行该脚本，获取到结果后**自动删除临时脚本**。
+- **inspect-db**：仅通过临时脚本获取 schema。临时脚本路径固定为项目根目录下 `./.tmp_inspect_db.py`；存在则执行，**执行完毕后删除该文件**。全量 schema 写入**公共存储** `spec/db/{scheme}-{dbname}-schema.md`（如 `spec/db/postgres-hiq_admin-schema.md`）；若脚本输出含可选 `ddl_sql`，则同时写入 `spec/db/{scheme}-{dbname}-ddl.sql` 作为全量 DDL。各需求 `01-analysis.md` 的「数据库现状」块仅写入引用行：`本需求涉及表详见 [dbname schema 文档](spec/db/xxx-schema.md)。`。无脚本或执行失败时在 db-schema 块中写入提示。
+- **DB 探查脚本契约**（项目根目录 `./.tmp_inspect_db.py`）：
+  - **输入**：stdin 接收单个 JSON 对象 `{"connections": ["uri1", "uri2", ...]}`。
+  - **输出**：stdout 输出单个 JSON 对象 `{"results": [{"connection": "…", "ok": true|false, "message": "…", "tables": {"表名": ["列1","列2",…]}, "table_comments": {"表名":"表注释"}}], "ddl_sql": "可选"}`。
+    - `tables` 可省略或为空；列列表可为空；列建议使用 `列名:类型（注释：字段注释）` 的字符串形式。
+    - `table_comments` 可省略或为空。
+    - **ddl_sql**（可选）：全量 DDL SQL 字符串（如 `CREATE TABLE …;`、索引等）。若提供，引擎会写入 `spec/db/{slug}-ddl.sql`；PostgreSQL 可在脚本内用 `pg_dump --schema-only` 子进程获取，MySQL 可用 `SHOW CREATE TABLE` 拼接。
+  - 脚本需自行选择并安装所需驱动（如缺驱动可在 message 中说明安装建议）；运行目录为项目根目录。
 
 ## Regression policy
 

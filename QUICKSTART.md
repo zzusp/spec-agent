@@ -146,4 +146,7 @@ python scripts/regression_split_skill_contract.py
 
 - 报错 `multiple requirements found ...`：同名需求存在多个日期目录，请改用 `--path`。
 - 报错 `clarifications not closed ...`：`--strict` 模式下存在未确认澄清项，先在 `00-clarifications.md` 完成闭环。
-- `inspect-db` 未探查成功：`sqlite://` 可直接探查；`mysql://` 需本地 `mysql` 客户端；`postgres://`/`postgresql://` 需本地 `psql` 客户端。
+- `inspect-db` 未探查成功：
+  - 确认项目根目录是否存在临时脚本 `./.tmp_inspect_db.py`，且实现了 AGENTS.md 中约定的输入/输出契约。
+  - 对 Postgres/MySQL 等库，临时脚本需自行选择并导入合适驱动（例如 `psycopg2`、`pymysql`）；缺少驱动时应在脚本返回的 `message` 中给出安装建议。
+  - 无临时脚本或脚本执行失败时，analysis 的「数据库现状」块会提示“未提供 DB 探查临时脚本或脚本执行失败”，可据此排查。
