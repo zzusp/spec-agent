@@ -10,11 +10,12 @@ Use `spec-agent-task` as the primary entry skill in AI IDE.
 
 Trigger split skills when user intent includes any of:
 
-- 提出开发需求或功能需求，需要产出完整需求文档集
-- 编写/更新 `analysis` / `PRD` / `tech` / `acceptance` / `clarifications`
-- 基于澄清文档多轮完善文档
-- 执行最终检查并定位冲突、遗漏、不一致
-- 指定并更新某个需求目录
+- **Slash-command with requirement** (e.g. `/spec-agent-task Fix login timeout` or `/spec-agent-task New requirement: ...`) → trigger `spec-agent-task`
+- User proposes a dev or feature requirement and needs a full requirement doc set
+- Write/update `analysis` / `PRD` / `tech` / `acceptance` / `clarifications`
+- Refine docs over multiple rounds based on clarifications
+- Run final check and surface conflicts, gaps, inconsistencies
+- Designate and update a requirement directory
 
 ## Canonical workflow
 

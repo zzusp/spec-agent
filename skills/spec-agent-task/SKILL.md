@@ -1,13 +1,15 @@
 ---
 name: spec-agent-task
-description: Coordinate the split spec-agent skills in AI-first mode. Use when user asks for end-to-end requirement delivery and expects the caller AI to generate name, title, and all document content directly.
+description: Entry skill for full spec delivery. Trigger only when user runs /spec-agent-task with requirement text; then produce analysis, PRD, tech, acceptance.
 ---
 
 # Spec agent task
 
 ## Trigger
 
-Use when the user asks for end-to-end requirement delivery and expects the caller AI to generate name, title, and all document content directly. Invoke as the single entry in AI IDE: `/spec-agent-task 现在产品提了一个新需求，需求如下：...`
+**When**: User invokes `/spec-agent-task` with requirement text (the part after the command is `raw_requirement`).
+
+**Examples**: `/spec-agent-task Fix login timeout` · `/spec-agent-task New requirement: add export to CSV`
 
 ## Child skills
 
@@ -32,13 +34,11 @@ Use when the user asks for end-to-end requirement delivery and expects the calle
 
 ## AI-first contract (must)
 
-1. Parse user text as `raw_requirement`.
+1. Parse user text (or the text after `/spec-agent-task`) as `raw_requirement`.
 2. Use caller AI reasoning to generate:
-- `name` (kebab-case, <= 64 chars)
-- `title` (clear business title)
-- `project_mode` (`greenfield` / `existing`)
-   - `greenfield`: first-time project from scratch, no stable baseline to inherit
-   - `existing`: new requirement on an existing project baseline
+   - `name` (kebab-case, ≤64 chars)
+   - `title` (clear business title)
+   - `project_mode` (`greenfield` | `existing`): greenfield = first-time project; existing = new requirement on existing baseline
 3. Initialize workspace state only.
 4. Generate document content directly with caller AI and write files.
    - Prefer stage subagents (`analysis/prd/tech/acceptance/final_check`) coordinated by orchestrator.
