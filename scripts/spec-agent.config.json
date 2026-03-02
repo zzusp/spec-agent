@@ -1,24 +1,3 @@
 {
-  "spec_dir": "spec",
-  "date_format": "%Y-%m-%d",
-  "placeholders": ["TODO", "TBD", "待补充", "待确认", "（待）"],
-  "prd_tech_words": ["数据库", "SQL", "表", "接口", "API", "代码", "架构", "技术方案", "实现"],
-  "prd_tech_whitelist": ["数据库连接信息", "数据口径", "业务口径"],
-  "clarify_columns": ["ID", "状态", "优先级", "影响范围", "归属文档", "关联章节", "问题/待确认点", "用户确认/补充", "解决方案"],
-  "clarify_statuses": ["待确认", "已确认"],
-  "clarify_confirmed_status": "已确认",
-  "enable_auto_seed_clarifications": true,
-  "max_seed_questions_per_doc": 3,
-  "doc_clarify_seeds": {},
-  "min_doc_bullets": { "analysis": 8, "prd": 10, "tech": 10, "acceptance": 8 },
-  "dry_run_default": false,
-  "default_project_mode": "existing",
-  "rules_copy_allowlist": ["coding.mdc", "delivery.mdc"],
-  "metadata_lock_timeout_sec": 8,
-  "metadata_lock_poll_sec": 0.05,
-  "metadata_lock_stale_sec": 120,
-  "requirement_lock_timeout_sec": 8,
-  "requirement_lock_poll_sec": 0.05,
-  "requirement_lock_stale_sec": 120,
-  "enforce_final_check_agent_independence": true
+  "rules_copy_allowlist": ["coding.mdc", "delivery.mdc"]
 }

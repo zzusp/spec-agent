@@ -5,23 +5,16 @@ import datetime as dt
 import hashlib
 import json
 import re
-import shutil
 import sqlite3
-import subprocess
-import sys
 from pathlib import Path
+from regression_lib import remove_dir, run_spec_agent
 
 ROOT = Path(__file__).resolve().parents[1]
-PY = [sys.executable, str(ROOT / "scripts" / "spec_agent.py")]
 REQ = "regression-smoke"
 
 
 def run(args, check=True):
-    cmd = PY + args
-    p = subprocess.run(cmd, cwd=str(ROOT), capture_output=True, text=True)
-    if check and p.returncode != 0:
-        raise RuntimeError(f"command failed: {' '.join(cmd)}\n{p.stdout}\n{p.stderr}")
-    return p
+    return run_spec_agent(args, root=ROOT, check=check)
 
 
 def issue_count(output: str) -> int:
@@ -76,11 +69,6 @@ def clarification_row_count(clar_path: Path) -> int:
 
 def file_hash(path: Path) -> str:
     return hashlib.md5(path.read_bytes()).hexdigest()
-
-
-def remove_dir(path: Path):
-    if path.exists():
-        shutil.rmtree(path, ignore_errors=True)
 
 
 def main():

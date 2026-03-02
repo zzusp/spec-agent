@@ -15,10 +15,12 @@ import time
 from contextlib import contextmanager
 from urllib.parse import unquote, urlparse
 from pathlib import Path
+import spec_agent_engine_config as cfgmod
 
 # Plugin/repo root: where this script lives (for loading config).
 SCRIPT_ROOT = Path(__file__).resolve().parents[1]
 CONFIG_FILE = SCRIPT_ROOT / "scripts" / "spec-agent.config.json"
+DEFAULT_CONFIG_FILE = SCRIPT_ROOT / "scripts" / "spec-agent.defaults.json"
 # User project root: where spec/ is created. Default = CWD when invoking the script; override with env SPEC_AGENT_PROJECT_ROOT.
 _PROJECT_ROOT_ENV = os.environ.get("SPEC_AGENT_PROJECT_ROOT", "").strip()
 PROJECT_ROOT = Path(_PROJECT_ROOT_ENV).resolve() if _PROJECT_ROOT_ENV else Path.cwd()
@@ -26,46 +28,7 @@ RUNTIME_JSON_OUTPUT = False
 METADATA_VERSION_KEY = "_meta_version"
 AI_DB_CONNECTIONS_KEY = "ai_db_connections"
 
-DEFAULT_CONFIG = {
-    "spec_dir": "spec",
-    "date_format": "%Y-%m-%d",
-    "placeholders": ["TODO", "TBD", "待补充", "待确认", "（待）"],
-    "prd_tech_words": ["数据库", "SQL", "表", "接口", "API", "代码", "架构", "技术方案", "实现"],
-    "prd_tech_whitelist": ["数据库连接信息", "数据口径", "业务口径"],
-    "clarify_columns": [
-        "ID",
-        "状态",
-        "优先级",
-        "影响范围",
-        "归属文档",
-        "关联章节",
-        "问题/待确认点",
-        "用户确认/补充",
-        "解决方案",
-    ],
-    "clarify_statuses": ["待确认", "已确认"],
-    "clarify_confirmed_status": "已确认",
-    "enable_auto_seed_clarifications": True,
-    "max_seed_questions_per_doc": 3,
-    "doc_clarify_seeds": {},
-    "min_doc_bullets": {
-        "analysis": 8,
-        "prd": 10,
-        "tech": 10,
-        "acceptance": 8,
-    },
-    "max_new_clarifications_per_round": 10,
-    "dry_run_default": False,
-    "default_project_mode": "existing",
-    "rules_copy_allowlist": [],
-    "metadata_lock_timeout_sec": 8.0,
-    "metadata_lock_poll_sec": 0.05,
-    "metadata_lock_stale_sec": 120.0,
-    "requirement_lock_timeout_sec": 8.0,
-    "requirement_lock_poll_sec": 0.05,
-    "requirement_lock_stale_sec": 120.0,
-    "enforce_final_check_agent_independence": True,
-}
+DEFAULT_CONFIG = cfgmod.load_default_config(DEFAULT_CONFIG_FILE)
 
 PROJECT_MODES = {"greenfield", "existing"}
 DB_TYPE_ALIASES = {
@@ -288,80 +251,12 @@ SECTION_HEADING_RE = re.compile(r"^## .+$", re.MULTILINE)
 
 
 def load_config():
-    cfg = dict(DEFAULT_CONFIG)
-    if CONFIG_FILE.exists():
-        try:
-            loaded = json.loads(CONFIG_FILE.read_text(encoding="utf-8-sig"))
-            if isinstance(loaded, dict):
-                cfg.update({k: v for k, v in loaded.items() if v is not None})
-        except json.JSONDecodeError:
-            raise SystemExit("invalid scripts/spec-agent.config.json")
-    return cfg
+    return cfgmod.load_merged_config(DEFAULT_CONFIG_FILE, CONFIG_FILE)
 
 
 CONFIG = load_config()
 def validate_config(cfg):
-    def ensure_positive_number(key: str):
-        if key not in cfg:
-            return
-        val = cfg[key]
-        if isinstance(val, bool) or not isinstance(val, (int, float)) or float(val) <= 0:
-            raise SystemExit(f"config {key} must be positive number")
-
-    def ensure_bool(key: str):
-        if key not in cfg:
-            return
-        if not isinstance(cfg[key], bool):
-            raise SystemExit(f"config {key} must be boolean")
-
-    required_keys = {
-        "spec_dir": str,
-        "date_format": str,
-        "placeholders": list,
-        "prd_tech_words": list,
-        "clarify_columns": list,
-        "clarify_statuses": list,
-        "clarify_confirmed_status": str,
-    }
-    for key, typ in required_keys.items():
-        if key not in cfg:
-            raise SystemExit(f"config missing key: {key}")
-        if not isinstance(cfg[key], typ):
-            raise SystemExit(f"config invalid type for {key}")
-
-    must_columns = {"ID", "状态", "归属文档", "问题/待确认点"}
-    if not must_columns.issubset(set(cfg["clarify_columns"])):
-        raise SystemExit("config clarify_columns missing required columns")
-    if not cfg["clarify_statuses"]:
-        raise SystemExit("config clarify_statuses cannot be empty")
-    if not cfg["clarify_confirmed_status"].strip():
-        raise SystemExit("config clarify_confirmed_status cannot be empty")
-    if "doc_clarify_seeds" in cfg and not isinstance(cfg["doc_clarify_seeds"], dict):
-        raise SystemExit("config doc_clarify_seeds must be object")
-    if "min_doc_bullets" in cfg:
-        if not isinstance(cfg["min_doc_bullets"], dict):
-            raise SystemExit("config min_doc_bullets must be object")
-        for k, v in cfg["min_doc_bullets"].items():
-            if k not in {"analysis", "prd", "tech", "acceptance"}:
-                raise SystemExit(f"config min_doc_bullets invalid key: {k}")
-            if not isinstance(v, int) or v < 0:
-                raise SystemExit("config min_doc_bullets values must be non-negative integer")
-    if "max_new_clarifications_per_round" in cfg:
-        if not isinstance(cfg["max_new_clarifications_per_round"], int) or cfg["max_new_clarifications_per_round"] <= 0:
-            raise SystemExit("config max_new_clarifications_per_round must be positive integer")
-    if "dry_run_default" in cfg and not isinstance(cfg["dry_run_default"], bool):
-        raise SystemExit("config dry_run_default must be boolean")
-    if "default_project_mode" in cfg:
-        mode_val = str(cfg["default_project_mode"]).strip().lower()
-        if mode_val not in PROJECT_MODES:
-            raise SystemExit(f"config default_project_mode must be one of: {', '.join(sorted(PROJECT_MODES))}")
-    ensure_positive_number("metadata_lock_timeout_sec")
-    ensure_positive_number("metadata_lock_poll_sec")
-    ensure_positive_number("metadata_lock_stale_sec")
-    ensure_positive_number("requirement_lock_timeout_sec")
-    ensure_positive_number("requirement_lock_poll_sec")
-    ensure_positive_number("requirement_lock_stale_sec")
-    ensure_bool("enforce_final_check_agent_independence")
+    cfgmod.validate_config(cfg, PROJECT_MODES)
 
 
 validate_config(CONFIG)
@@ -395,6 +290,11 @@ METADATA_LOCK_STALE_SEC = float(CONFIG.get("metadata_lock_stale_sec", DEFAULT_CO
 REQUIREMENT_LOCK_TIMEOUT_SEC = float(CONFIG.get("requirement_lock_timeout_sec", DEFAULT_CONFIG["requirement_lock_timeout_sec"]))
 REQUIREMENT_LOCK_POLL_SEC = float(CONFIG.get("requirement_lock_poll_sec", DEFAULT_CONFIG["requirement_lock_poll_sec"]))
 REQUIREMENT_LOCK_STALE_SEC = float(CONFIG.get("requirement_lock_stale_sec", DEFAULT_CONFIG["requirement_lock_stale_sec"]))
+AI_JUDGE_TIMEOUT_SEC = float(CONFIG.get("ai_judge_timeout_sec", DEFAULT_CONFIG["ai_judge_timeout_sec"]))
+AI_JUDGE_COMMAND = str(
+    os.environ.get("SPEC_AGENT_AI_JUDGE_COMMAND", "").strip()
+    or CONFIG.get("ai_judge_command", DEFAULT_CONFIG["ai_judge_command"])
+).strip()
 
 DOC_CLARIFY_SEEDS = {
     "analysis": [
@@ -462,62 +362,96 @@ def normalize_project_mode(mode: str | None) -> str:
     return mapped
 
 
+def _try_parse_json_payload(raw: str):
+    text = str(raw or "").strip()
+    if not text:
+        return None
+    try:
+        return json.loads(text)
+    except (json.JSONDecodeError, TypeError, ValueError):
+        pass
+    lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
+    for line in reversed(lines):
+        try:
+            return json.loads(line)
+        except (json.JSONDecodeError, TypeError, ValueError):
+            continue
+    return None
+
+
+def _truncate_message(text: str, max_len: int = 500) -> str:
+    s = str(text or "").strip()
+    if len(s) <= max_len:
+        return s
+    return s[: max_len - 3] + "..."
+
+
+def run_ai_judge(task: str, payload: dict) -> dict:
+    cmd = AI_JUDGE_COMMAND
+    if not cmd:
+        raise SystemExit(
+            "AI 判定未配置：请设置环境变量 SPEC_AGENT_AI_JUDGE_COMMAND，"
+            "或在 scripts/spec-agent.config.json 中配置 ai_judge_command。"
+        )
+    request = {
+        "task": str(task or "").strip(),
+        "input": payload if isinstance(payload, dict) else {},
+    }
+    request_raw = json.dumps(request, ensure_ascii=False)
+    try:
+        proc = subprocess.run(
+            cmd,
+            cwd=str(PROJECT_ROOT),
+            input=request_raw,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            timeout=AI_JUDGE_TIMEOUT_SEC,
+            check=False,
+            shell=True,
+        )
+    except (OSError, subprocess.SubprocessError, ValueError) as ex:
+        raise SystemExit(f"AI 判定执行失败（task={task}）：{ex}")
+    if proc.returncode != 0:
+        detail = _truncate_message(proc.stderr or proc.stdout or "")
+        raise SystemExit(
+            f"AI 判定失败（task={task}，exit={proc.returncode}）："
+            f"{detail or '命令返回非零退出码'}"
+        )
+    data = _try_parse_json_payload(proc.stdout or "")
+    if not isinstance(data, dict):
+        detail = _truncate_message(proc.stdout or "")
+        raise SystemExit(f"AI 判定输出无效（task={task}）：stdout 不是 JSON 对象。{detail}")
+    return data
+
+
 def infer_project_mode(*texts: str) -> str:
-    text = "\n".join([str(t or "") for t in texts]).lower()
-    if not text.strip():
-        return ""
-    greenfield_hits = 0
-    existing_hits = 0
-    greenfield_keywords = [
-        "从零",
-        "从 0",
-        "0到1",
-        "零到一",
-        "全新项目",
-        "新建项目",
-        "新系统",
-        "新搭建",
-        "greenfield",
-        "from scratch",
-    ]
-    existing_keywords = [
-        "已有项目",
-        "现有项目",
-        "存量项目",
-        "新增需求",
-        "增量需求",
-        "迭代",
-        "基于现有",
-        "在现有",
-        "兼容现有",
-        "existing",
-        "brownfield",
-    ]
-    for kw in greenfield_keywords:
-        if kw in text:
-            greenfield_hits += 1
-    for kw in existing_keywords:
-        if kw in text:
-            existing_hits += 1
-    if greenfield_hits > existing_hits:
-        return "greenfield"
-    if existing_hits > greenfield_hits:
-        return "existing"
-    return ""
+    text = "\n".join([str(t or "") for t in texts]).strip()
+    if not text:
+        raise SystemExit("AI project_mode 判定失败：缺少需求文本。")
+    data = run_ai_judge(
+        "project_mode",
+        {
+            "requirement_text": text,
+            "allowed_modes": sorted(list(PROJECT_MODES)),
+        },
+    )
+    raw_mode = data.get("project_mode")
+    if raw_mode in (None, ""):
+        raw_mode = data.get("mode")
+    if raw_mode in (None, ""):
+        raw_mode = data.get("result")
+    mode = normalize_project_mode(raw_mode)
+    if not mode:
+        raise SystemExit(f"AI project_mode 判定失败：返回结果为空或无效（task=project_mode, output={data}）。")
+    return mode
 
 
 def resolve_project_mode(requirement_text: str, clarify_text: str = "", requested_mode: str | None = None) -> str:
-    try:
-        requested = normalize_project_mode(requested_mode)
-    except SystemExit:
-        requested = ""
+    requested = normalize_project_mode(requested_mode)
     if requested:
         return requested
-    inferred = infer_project_mode(requirement_text, clarify_text)
-    if inferred:
-        return inferred
-    default_mode = normalize_project_mode(str(CONFIG.get("default_project_mode", "existing")))
-    return default_mode or "existing"
+    return infer_project_mode(requirement_text, clarify_text)
 
 
 def clarification_focus_by_project_mode(mode: str) -> dict:
@@ -587,51 +521,34 @@ def _extract_business_hint_lines(text: str) -> list[str]:
     return [ln for ln in lines if not _is_connection_or_path_line(ln)]
 
 
-def _name_from_keyword_map(text: str) -> str:
-    mapping = [
-        ("退款", "refund"),
-        ("订单", "order"),
-        ("支付", "payment"),
-        ("审核", "review"),
-        ("审批", "approve"),
-        ("驳回", "reject"),
-        ("财务", "finance"),
-        ("打款", "payout"),
-        ("日志", "log"),
-        ("状态", "status"),
-        ("流程", "flow"),
-        ("用户", "user"),
-        ("权限", "permission"),
-    ]
-    tokens = []
-    seen = set()
-    for cn, en in mapping:
-        if cn in (text or "") and en not in seen:
-            seen.add(en)
-            tokens.append(en)
-    if not tokens:
-        return ""
-    if "flow" not in seen:
-        tokens.append("flow")
-    return "-".join(tokens[:6])
+def ai_requirement_name(title: str | None, requirement_text: str, hint_lines: list[str] | None = None) -> str:
+    data = run_ai_judge(
+        "requirement_name",
+        {
+            "title": str(title or "").strip(),
+            "requirement_text": str(requirement_text or ""),
+            "hint_lines": [str(x) for x in (hint_lines or [])[:8]],
+            "output_constraint": {
+                "format": "kebab-case",
+                "max_len": 64,
+                "ascii_only": True,
+            },
+        },
+    )
+    raw_name = data.get("requirement_name")
+    if raw_name in (None, ""):
+        raw_name = data.get("name")
+    if raw_name in (None, ""):
+        raw_name = data.get("result")
+    name = _slugify_name(str(raw_name or ""))
+    if not name:
+        raise SystemExit(f"AI requirement name 判定失败：返回结果为空或无效（task=requirement_name, output={data}）。")
+    return name
 
 
 def auto_requirement_name(title: str | None, requirement_text: str) -> str:
     hint_lines = _extract_business_hint_lines(requirement_text)
-    candidates = [title or ""]
-    if hint_lines:
-        candidates.append(hint_lines[0])
-        candidates.extend(hint_lines[1:4])
-        candidates.append(" ".join(hint_lines[:8]))
-    for raw in candidates:
-        name = _slugify_name(raw)
-        if name:
-            return name
-    mapped = _slugify_name(_name_from_keyword_map(requirement_text))
-    if mapped:
-        return mapped
-    digest = hashlib.md5((requirement_text or "requirement").encode("utf-8")).hexdigest()[:8]
-    return f"req-{today_str().replace('-', '')}-{digest}"
+    return ai_requirement_name(title, requirement_text, hint_lines)
 
 
 def next_available_requirement_name(date_str: str, base_name: str) -> str:
@@ -652,6 +569,85 @@ def auto_requirement_title(title: str | None, requirement_text: str, fallback_na
         if first:
             return first[:64]
     return fallback_name
+
+
+def _normalize_doc_target(value: str) -> str:
+    v = str(value or "").strip().lower()
+    aliases = {
+        "global": "global",
+        "analysis": "analysis",
+        "prd": "prd",
+        "tech": "tech",
+        "acceptance": "acceptance",
+    }
+    return aliases.get(v, "")
+
+
+def ai_classify_clarification_targets(raw_doc: str) -> set[str]:
+    allowed = ["global", "analysis", "prd", "tech", "acceptance"]
+    data = run_ai_judge(
+        "clarification_targets",
+        {
+            "raw_doc": str(raw_doc or ""),
+            "allowed_targets": allowed,
+        },
+    )
+    raw_targets = data.get("targets")
+    if raw_targets in (None, ""):
+        raw_targets = data.get("result")
+    values = []
+    if isinstance(raw_targets, list):
+        values = [str(x) for x in raw_targets]
+    elif isinstance(raw_targets, str):
+        values = [x.strip() for x in re.split(r"[,\s/|;]+", raw_targets) if x.strip()]
+    else:
+        raise SystemExit(f"AI 澄清目标判定失败：返回结构无效（task=clarification_targets, output={data}）。")
+    normalized = {_normalize_doc_target(x) for x in values}
+    normalized.discard("")
+    if not normalized:
+        raise SystemExit(f"AI 澄清目标判定失败：未返回有效目标（task=clarification_targets, output={data}）。")
+    return normalized
+
+
+def ai_evaluate_acceptance_testability(aid: str, block: str) -> dict:
+    data = run_ai_judge(
+        "acceptance_testability",
+        {
+            "aid": str(aid or "").strip(),
+            "content": str(block or ""),
+            "required_elements": ["前置条件", "验收步骤", "通过标准", "失败处理"],
+        },
+    )
+    out = {
+        "steps_executable": bool(data.get("steps_executable", False)),
+        "pass_assertable": bool(data.get("pass_assertable", False)),
+        "pass_too_vague": bool(data.get("pass_too_vague", False)),
+        "reason": str(data.get("reason", "")).strip(),
+    }
+    if not isinstance(data.get("steps_executable"), bool) or not isinstance(data.get("pass_assertable"), bool):
+        raise SystemExit(
+            f"AI 验收可测试性判定失败：缺少布尔字段 steps_executable/pass_assertable "
+            f"(task=acceptance_testability, output={data})。"
+        )
+    return out
+
+
+def ai_classify_issue_stage(issue: dict, allowed_stages: list[str] | tuple[str, ...]) -> str:
+    allowed = [str(x).strip().lower() for x in allowed_stages if str(x).strip()]
+    data = run_ai_judge(
+        "final_check_issue_stage",
+        {
+            "issue": issue if isinstance(issue, dict) else {},
+            "allowed_stages": allowed,
+        },
+    )
+    stage_raw = data.get("stage")
+    if stage_raw in (None, ""):
+        stage_raw = data.get("result")
+    stage = str(stage_raw or "").strip().lower()
+    if stage not in allowed:
+        raise SystemExit(f"AI 问题分阶段判定失败：返回 stage 无效（task=final_check_issue_stage, output={data}）。")
+    return stage
 
 
 def write_file(path: Path, content: str):
@@ -1772,9 +1768,7 @@ def format_db_schema_results(results: list[dict]) -> str:
 
 
 def run_inspect_db_script(
-    req_path: Path,
     connection_strings: list[str],
-    script_file: Path | str | None = None,
 ) -> tuple[str | None, str | None]:
     """执行 DB 探查脚本（方式 B 契约），用其输出生成 db-schema 块正文及可选全量 DDL。
     使用项目根目录下的固定临时脚本文件（TEMP_INSPECT_DB_SCRIPT），执行完毕后删除该文件。
@@ -1948,7 +1942,7 @@ def scan_modules() -> list[str]:
     return sorted(modules)
 
 
-def load_clar_rows(path: Path, sync: bool = True):
+def load_clar_rows(path: Path, sync: bool = False):
     md_rows, js_rows = load_clar_rows_pair(path)
     clar_path = path / DOC_FILES["clarifications"]
     clar_json_path = path / DOC_FILES["clarifications_json"]
@@ -2361,14 +2355,7 @@ def _classify_issue_to_stage(issue: dict) -> str:
     doc = str(issue.get("doc", "")).strip().lower()
     if doc in FINAL_CHECK_DOC_STAGE_MAP:
         return FINAL_CHECK_DOC_STAGE_MAP[doc]
-    question = str(issue.get("question", "")).strip()
-    if any(k in question for k in ("验收", "A-")):
-        return "acceptance"
-    if any(k in question for k in ("技术方案", "SQL", "数据库设计", "回滚")):
-        return "tech"
-    if any(k in question for k in ("PRD", "产品功能", "非功能性需求")):
-        return "prd"
-    return "analysis"
+    return ai_classify_issue_stage(issue, SUBAGENT_REOPEN_ORDER)
 
 
 def _suggest_reopen_stage_from_final_check(path: Path) -> tuple[str, dict, list[dict]]:
@@ -2719,3 +2706,51 @@ def subagent_status(path: Path, normalize: bool = False) -> dict:
         "last_reopen": root.get("last_reopen", {}),
         "stages": root.get("stages", {}) if normalize else stages,
     }
+
+
+# Extracted modules override selected domains to reduce core coupling.
+from spec_agent_engine_templates import append_revision_row as _append_revision_row_from_templates
+from spec_agent_engine_templates import revision_table_block as _revision_table_block_from_templates
+from spec_agent_engine_clarifications import (
+    add_clarifications as _add_clarifications_from_module,
+    ensure_runtime_context_clarifications as _ensure_runtime_context_clarifications_from_module,
+    load_clar_rows as _load_clar_rows_from_module,
+    load_clar_rows_pair as _load_clar_rows_pair_from_module,
+    next_clarify_id as _next_clarify_id_from_module,
+    persist_clarifications as _persist_clarifications_from_module,
+)
+from spec_agent_engine_locks import (
+    _acquire_file_lock as _acquire_file_lock_from_module,
+    _acquire_metadata_lock as _acquire_metadata_lock_from_module,
+    _acquire_requirement_lock as _acquire_requirement_lock_from_module,
+    _read_lock_owner as _read_lock_owner_from_module,
+    _release_file_lock as _release_file_lock_from_module,
+    _release_metadata_lock as _release_metadata_lock_from_module,
+    _release_requirement_lock as _release_requirement_lock_from_module,
+    requirement_write_lock as _requirement_write_lock_from_module,
+)
+from spec_agent_engine_subagent import (
+    subagent_context as _subagent_context_from_module,
+    subagent_status as _subagent_status_from_module,
+    update_subagent_stage as _update_subagent_stage_from_module,
+)
+
+_revision_table_block = _revision_table_block_from_templates
+append_revision_row = _append_revision_row_from_templates
+_read_lock_owner = _read_lock_owner_from_module
+_acquire_file_lock = _acquire_file_lock_from_module
+_release_file_lock = _release_file_lock_from_module
+_acquire_metadata_lock = _acquire_metadata_lock_from_module
+_release_metadata_lock = _release_metadata_lock_from_module
+_acquire_requirement_lock = _acquire_requirement_lock_from_module
+_release_requirement_lock = _release_requirement_lock_from_module
+requirement_write_lock = _requirement_write_lock_from_module
+load_clar_rows = _load_clar_rows_from_module
+load_clar_rows_pair = _load_clar_rows_pair_from_module
+add_clarifications = _add_clarifications_from_module
+persist_clarifications = _persist_clarifications_from_module
+next_clarify_id = _next_clarify_id_from_module
+ensure_runtime_context_clarifications = _ensure_runtime_context_clarifications_from_module
+subagent_context = _subagent_context_from_module
+update_subagent_stage = _update_subagent_stage_from_module
+subagent_status = _subagent_status_from_module

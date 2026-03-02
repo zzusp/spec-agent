@@ -9,4 +9,4 @@ This command invokes the **spec-agent-task** skill. Follow the full instructions
 
 - Treat the user message (or the text after `/spec-agent-task`) as `raw_requirement`.
 - Execute the skill workflow: init → analysis → prd → tech → acceptance; use scripts and child-skill logic as defined in the skill.
-- Run from user project root; see AGENTS.md for command contract.
+- When to use task vs init vs chat: see **docs/INIT-VS-TASK-DECISION-TREE.md** and AGENTS.md § Entry decision. Run from user project root; command contract in AGENTS.md.

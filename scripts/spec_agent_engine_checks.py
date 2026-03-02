@@ -1,67 +1,101 @@
 #!/usr/bin/env python
 from __future__ import annotations
 
-from spec_agent_engine_core import *
+import re
+from pathlib import Path
+from typing import Callable
+
+import spec_agent_engine_core as core
 
 
-def final_check(path: Path, write_back: bool = True):
-    issues = []
-    metadata_changed = False
+class IssueCollector:
+    def __init__(self):
+        self.issues: list[dict] = []
+        self.clarification_relevant_codes = {
+            # These usually indicate requirement semantics mismatch and may need user confirmation.
+            "acceptance.traceability.missing_rid_to_aid",
+            "acceptance.traceability.orphan_rids",
+        }
 
-    clarification_relevant_codes = {
-        # These usually indicate requirement semantics mismatch and may need user confirmation.
-        "acceptance.traceability.missing_rid_to_aid",
-        "acceptance.traceability.orphan_rids",
-    }
-
-    def add_issue(doc, question, code: str = "", needs_clarification: bool | None = None):
+    def add(self, doc, question, code: str = "", needs_clarification: bool | None = None):
         normalized_doc = str(doc or "global").strip().lower() or "global"
-        normalized_code = str(code or "").strip().lower()
-        if not normalized_code:
-            normalized_code = f"{normalized_doc}.generic"
+        normalized_code = str(code or "").strip().lower() or f"{normalized_doc}.generic"
         if needs_clarification is None:
-            needs_clarification = normalized_code in clarification_relevant_codes or bool(
+            needs_clarification = normalized_code in self.clarification_relevant_codes or bool(
                 re.search(r"(请确认|需确认|用户确认|待确认)", str(question or ""))
             )
-        issues.append({
+        self.issues.append({
             "doc": doc,
             "question": question,
             "code": normalized_code,
             "needs_clarification": bool(needs_clarification),
         })
 
-    def has_prd_tech_detail(content: str):
-        for raw_line in content.splitlines():
-            line = raw_line.strip()
-            if not line:
-                continue
-            if line.startswith("#") or line.startswith("|"):
-                continue
-            if any(token in line for token in PRD_TECH_WHITELIST):
-                continue
-            if re.search(r"```|CREATE\s+TABLE|SELECT\s+.+\s+FROM|ALTER\s+TABLE|INSERT\s+INTO|/api/|class\s+\w+|def\s+\w+\(", line, flags=re.IGNORECASE):
-                return True
-            if any(word in line for word in PRD_TECH_WORDS_EFFECTIVE):
-                return True
-        return False
 
-    def bullet_count(content: str):
-        return len(re.findall(r"^\s*-\s+", content, flags=re.MULTILINE))
+def has_prd_tech_detail(content: str):
+    for raw_line in content.splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+        if line.startswith("#") or line.startswith("|"):
+            continue
+        if any(token in line for token in core.PRD_TECH_WHITELIST):
+            continue
+        if re.search(r"```|CREATE\s+TABLE|SELECT\s+.+\s+FROM|ALTER\s+TABLE|INSERT\s+INTO|/api/|class\s+\w+|def\s+\w+\(", line, flags=re.IGNORECASE):
+            return True
+        if any(word in line for word in core.PRD_TECH_WORDS_EFFECTIVE):
+            return True
+    return False
 
-    def extract_section(content: str, heading: str) -> str:
-        pattern = re.compile(rf"^{re.escape(heading)}\s*$", flags=re.MULTILINE)
-        m = pattern.search(content)
-        if not m:
-            return ""
-        start = m.end()
-        next_h2 = re.search(r"^##\s+", content[start:], flags=re.MULTILINE)
-        end = start + next_h2.start() if next_h2 else len(content)
-        return content[start:end]
 
-    def extract_acceptance_table_ids(content: str):
-        m = re.search(r"^## 验收项清单\s*$", content, flags=re.MULTILINE)
-        if not m:
-            return []
+def bullet_count(content: str):
+    return len(re.findall(r"^\s*-\s+", content, flags=re.MULTILINE))
+
+
+def extract_section(content: str, heading: str) -> str:
+    pattern = re.compile(rf"^{re.escape(heading)}\s*$", flags=re.MULTILINE)
+    m = pattern.search(content)
+    if not m:
+        return ""
+    start = m.end()
+    next_h2 = re.search(r"^##\s+", content[start:], flags=re.MULTILINE)
+    end = start + next_h2.start() if next_h2 else len(content)
+    return content[start:end]
+
+
+def extract_acceptance_table_ids(content: str):
+    m = re.search(r"^## 验收项清单\s*$", content, flags=re.MULTILINE)
+    if not m:
+        return []
+    start = m.end()
+    next_h2 = re.search(r"^##\s+", content[start:], flags=re.MULTILINE)
+    end = start + next_h2.start() if next_h2 else len(content)
+    section = content[start:end]
+    lines = [ln.rstrip() for ln in section.splitlines() if ln.strip()]
+    header_idx = None
+    for i, line in enumerate(lines):
+        if line.strip().startswith("|") and "编号" in line and "验收项" in line and "预期结果" in line:
+            header_idx = i
+            break
+    if header_idx is None:
+        return []
+    ids = []
+    for line in lines[header_idx + 2:]:
+        if not line.strip().startswith("|"):
+            break
+        parts = core.split_md_row(line)
+        if not parts:
+            continue
+        aid = parts[0].strip()
+        if re.fullmatch(r"A-\d+", aid):
+            ids.append(aid)
+    return ids
+
+
+def extract_acceptance_rid_to_aids(content: str) -> dict[str, set[str]]:
+    rid_map = {}
+    m = re.search(r"^## 验收项清单\s*$", content, flags=re.MULTILINE)
+    if m:
         start = m.end()
         next_h2 = re.search(r"^##\s+", content[start:], flags=re.MULTILINE)
         end = start + next_h2.start() if next_h2 else len(content)
@@ -72,115 +106,59 @@ def final_check(path: Path, write_back: bool = True):
             if line.strip().startswith("|") and "编号" in line and "验收项" in line and "预期结果" in line:
                 header_idx = i
                 break
-        if header_idx is None:
-            return []
-        ids = []
-        for line in lines[header_idx + 2:]:
-            if not line.strip().startswith("|"):
-                break
-            parts = split_md_row(line)
-            if not parts:
-                continue
-            aid = parts[0].strip()
-            if re.fullmatch(r"A-\d+", aid):
-                ids.append(aid)
-        return ids
-
-    def extract_acceptance_rid_to_aids(content: str) -> dict[str, set[str]]:
-        rid_map = {}
-        m = re.search(r"^## 验收项清单\s*$", content, flags=re.MULTILINE)
-        if m:
-            start = m.end()
-            next_h2 = re.search(r"^##\s+", content[start:], flags=re.MULTILINE)
-            end = start + next_h2.start() if next_h2 else len(content)
-            section = content[start:end]
-            lines = [ln.rstrip() for ln in section.splitlines() if ln.strip()]
-            header_idx = None
-            for i, line in enumerate(lines):
-                if line.strip().startswith("|") and "编号" in line and "验收项" in line and "预期结果" in line:
-                    header_idx = i
+        if header_idx is not None:
+            for line in lines[header_idx + 2:]:
+                if not line.strip().startswith("|"):
                     break
-            if header_idx is not None:
-                for line in lines[header_idx + 2:]:
-                    if not line.strip().startswith("|"):
-                        break
-                    parts = split_md_row(line)
-                    if not parts:
-                        continue
-                    aid = parts[0].strip()
-                    if not re.fullmatch(r"A-\d+", aid):
-                        continue
-                    rid_tokens = set(re.findall(r"\bR-\d+\b", " ".join(parts[1:])))
-                    for rid in rid_tokens:
-                        rid_map.setdefault(rid, set()).add(aid)
+                parts = core.split_md_row(line)
+                if not parts:
+                    continue
+                aid = parts[0].strip()
+                if not re.fullmatch(r"A-\d+", aid):
+                    continue
+                rid_tokens = set(re.findall(r"\bR-\d+\b", " ".join(parts[1:])))
+                for rid in rid_tokens:
+                    rid_map.setdefault(rid, set()).add(aid)
 
-        for m in re.finditer(r"^###\s+(A-\d+)\s+验收计划与步骤(?:（([^）]+)）)?", content, flags=re.MULTILINE):
-            aid = m.group(1)
-            tail = m.group(2) or ""
-            rid_tokens = set(re.findall(r"\bR-\d+\b", tail))
-            for rid in rid_tokens:
-                rid_map.setdefault(rid, set()).add(aid)
-        return rid_map
+    for m in re.finditer(r"^###\s+(A-\d+)\s+验收计划与步骤(?:（([^）]+)）)?", content, flags=re.MULTILINE):
+        aid = m.group(1)
+        tail = m.group(2) or ""
+        rid_tokens = set(re.findall(r"\bR-\d+\b", tail))
+        for rid in rid_tokens:
+            rid_map.setdefault(rid, set()).add(aid)
+    return rid_map
 
-    def parse_clarification_targets(raw_doc: str) -> set[str]:
-        text = str(raw_doc or "").strip().lower()
-        targets = set()
-        if "global" in text or "全局" in text:
-            targets.add("global")
-        if "analysis" in text or "分析" in text:
-            targets.add("analysis")
-        if "prd" in text:
-            targets.add("prd")
-        if "tech" in text or "技术" in text:
-            targets.add("tech")
-        if "acceptance" in text or "验收" in text:
-            targets.add("acceptance")
-        if not targets:
-            targets.add("global")
-        return targets
 
-    def extract_plan_subsection(block: str, section_name: str) -> str:
-        pattern = re.compile(
-            rf"-\s*{re.escape(section_name)}[：:]\s*([\s\S]*?)(?=\n-\s*(?:前置条件|验收步骤|通过标准|失败处理)[：:]|\Z)",
-            re.MULTILINE,
-        )
-        m = pattern.search(block or "")
-        return (m.group(1) if m else "").strip()
+def collect_rids(doc_path: Path):
+    if not doc_path.exists():
+        return set()
+    return set(re.findall(r"\bR-\d+\b", core.strip_clarification_block(core.read_file(doc_path))))
 
-    def extract_plan_items(section_content: str) -> list[str]:
-        items = []
-        for raw in (section_content or "").splitlines():
-            line = raw.strip()
-            if not line:
-                continue
-            if re.match(r"^\d+\.\s+", line):
-                items.append(re.sub(r"^\d+\.\s+", "", line).strip())
-                continue
-            if re.match(r"^-\s+", line):
-                items.append(re.sub(r"^-\s+", "", line).strip())
-        return [x for x in items if x]
 
-    def section_has_keywords(items: list[str], keywords: list[str]) -> bool:
-        text = "\n".join(items)
-        return any(k in text for k in keywords)
-
-    # Global memory sync check
+def _rule_global_memory_sync(ctx: dict):
+    meta = {}
+    meta_version = None
     try:
-        meta, meta_version = load_metadata_file(path, with_version=True)
+        meta, meta_version = core.load_metadata_file(ctx["path"], with_version=True)
     except SystemExit:
-        meta = {}
-        meta_version = None
-    current_memory_hash = global_memory_hash()
-    if str(meta.get("global_memory_hash", "")) != current_memory_hash:
-        add_issue("global", "全局记忆快照未同步，请先执行 sync-memory 后再复检。", "global.memory.unsynced")
+        pass
+    ctx["meta"] = meta
+    ctx["meta_version"] = meta_version
+    if str(meta.get("global_memory_hash", "")) != core.global_memory_hash():
+        ctx["collector"].add("global", "全局记忆快照未同步，请先执行 sync-memory 后再复检。", "global.memory.unsynced")
 
+
+def _rule_required_docs(ctx: dict):
+    collector: IssueCollector = ctx["collector"]
     clar_rows = []
-    clar_path = path / DOC_FILES["clarifications"]
+    clar_path = ctx["path"] / core.DOC_FILES["clarifications"]
     if clar_path.exists():
-        clar_rows, _ = parse_clarifications_table(read_file(clar_path))
+        clar_rows, _ = core.parse_clarifications_table(core.read_file(clar_path))
+    ctx["clar_path"] = clar_path
+    ctx["clar_rows"] = clar_rows
     confirmed_questions = [
         r for r in clar_rows
-        if str(r.get("status", "")).strip() == CONFIRMED_STATUS
+        if str(r.get("status", "")).strip() == core.CONFIRMED_STATUS
         and not str(r.get("question", "")).strip().startswith("（示例）")
     ]
     has_confirmed_clarifications = len(confirmed_questions) > 0
@@ -189,214 +167,205 @@ def final_check(path: Path, write_back: bool = True):
         for r in confirmed_questions
         if re.fullmatch(r"C-\d+", str(r.get("id", "")).strip())
     }
+    ctx["confirmed_questions"] = confirmed_questions
+    ctx["has_confirmed_clarifications"] = has_confirmed_clarifications
+    ctx["all_confirmed_ids"] = all_confirmed_ids
 
-    # Required docs presence + memory/clarification integration checks
-    required_doc_keys = ("analysis", "prd", "tech", "acceptance")
     raw_doc_contents = {}
+    required_doc_keys = ("analysis", "prd", "tech", "acceptance")
     for key in required_doc_keys:
-        doc_path = path / DOC_FILES[key]
+        doc_path = ctx["path"] / core.DOC_FILES[key]
         if not doc_path.exists():
-            add_issue(key, f"{DOC_FILES[key]} 缺失，请先生成该文档。", f"{key}.doc.missing")
+            collector.add(key, f"{core.DOC_FILES[key]} 缺失，请先生成该文档。", f"{key}.doc.missing")
             continue
-        raw_content = read_file(doc_path)
+        raw_content = core.read_file(doc_path)
         raw_doc_contents[key] = raw_content
         if "全局记忆" not in raw_content:
-            add_issue(key, f"{DOC_FILES[key]} 缺少全局记忆引用，请结合 `spec/00-global-memory.md` 补充。", f"{key}.memory.missing_reference")
+            collector.add(key, f"{core.DOC_FILES[key]} 缺少全局记忆引用，请结合 `spec/00-global-memory.md` 补充。", f"{key}.memory.missing_reference")
         memory_section = extract_section(raw_content, "## 全局记忆约束")
         if not re.search(r"^\s*-\s+.+", memory_section, flags=re.MULTILINE):
-            add_issue(key, f"{DOC_FILES[key]} 缺少可执行的全局记忆约束条目（`## 全局记忆约束` 下至少 1 条）。", f"{key}.memory.missing_constraints")
-        if CLARIFY_START not in raw_content or CLARIFY_END not in raw_content:
-            add_issue(key, f"{DOC_FILES[key]} 缺少澄清补充区块，请补充 `{CLARIFY_START}` / `{CLARIFY_END}`。", f"{key}.clarification.missing_block")
-        else:
-            clar_block_pattern = re.compile(
-                re.escape(CLARIFY_START) + r"\n?([\s\S]*?)\n?" + re.escape(CLARIFY_END),
-                re.MULTILINE,
+            collector.add(key, f"{core.DOC_FILES[key]} 缺少可执行的全局记忆约束条目（`## 全局记忆约束` 下至少 1 条）。", f"{key}.memory.missing_constraints")
+        if core.CLARIFY_START not in raw_content or core.CLARIFY_END not in raw_content:
+            collector.add(key, f"{core.DOC_FILES[key]} 缺少澄清补充区块，请补充 `{core.CLARIFY_START}` / `{core.CLARIFY_END}`。", f"{key}.clarification.missing_block")
+            continue
+
+        clar_block_pattern = re.compile(
+            re.escape(core.CLARIFY_START) + r"\n?([\s\S]*?)\n?" + re.escape(core.CLARIFY_END),
+            re.MULTILINE,
+        )
+        m = clar_block_pattern.search(raw_content)
+        block = m.group(1) if m else ""
+        block_ids = set(re.findall(r"\bC-\d+\b", block))
+        if has_confirmed_clarifications and not block_ids:
+            collector.add(key, f"{core.DOC_FILES[key]} 澄清补充区块未引用已确认澄清项（需包含 C-xxx）。", f"{key}.clarification.missing_reference")
+        elif has_confirmed_clarifications and all_confirmed_ids and not (block_ids & all_confirmed_ids):
+            collector.add(
+                key,
+                f"{core.DOC_FILES[key]} 澄清补充区块未引用任何已确认澄清ID（需引用当前已确认 C-xxx）。",
+                f"{key}.clarification.missing_confirmed_ids",
             )
-            m = clar_block_pattern.search(raw_content)
-            block = m.group(1) if m else ""
-            block_ids = set(re.findall(r"\bC-\d+\b", block))
-            if has_confirmed_clarifications and not block_ids:
-                add_issue(key, f"{DOC_FILES[key]} 澄清补充区块未引用已确认澄清项（需包含 C-xxx）。", f"{key}.clarification.missing_reference")
-            elif has_confirmed_clarifications and all_confirmed_ids and not (block_ids & all_confirmed_ids):
-                add_issue(
-                    key,
-                    f"{DOC_FILES[key]} 澄清补充区块未引用任何已确认澄清ID（需引用当前已确认 C-xxx）。",
-                    f"{key}.clarification.missing_confirmed_ids",
-                )
 
-            required_ids = set()
-            for row in confirmed_questions:
-                cid = str(row.get("id", "")).strip()
-                if not re.fullmatch(r"C-\d+", cid):
-                    continue
-                targets = parse_clarification_targets(str(row.get("doc", "")))
-                if "global" in targets or key in targets:
-                    required_ids.add(cid)
-            missing_required_ids = sorted(required_ids - block_ids)
-            if missing_required_ids:
-                add_issue(
-                    key,
-                    f"{DOC_FILES[key]} 缺少目标澄清引用：{', '.join(missing_required_ids)}。",
-                    f"{key}.clarification.missing_required_ids",
-                )
+        required_ids = set()
+        for row in confirmed_questions:
+            cid = str(row.get("id", "")).strip()
+            if not re.fullmatch(r"C-\d+", cid):
+                continue
+            targets = core.ai_classify_clarification_targets(str(row.get("doc", "")))
+            if "global" in targets or key in targets:
+                required_ids.add(cid)
+        missing_required_ids = sorted(required_ids - block_ids)
+        if missing_required_ids:
+            collector.add(
+                key,
+                f"{core.DOC_FILES[key]} 缺少目标澄清引用：{', '.join(missing_required_ids)}。",
+                f"{key}.clarification.missing_required_ids",
+            )
+    ctx["raw_doc_contents"] = raw_doc_contents
 
-    # Analysis checks
-    analysis_path = path / DOC_FILES["analysis"]
+
+def _rule_doc_quality(ctx: dict):
+    collector: IssueCollector = ctx["collector"]
+    path = ctx["path"]
+
+    analysis_path = path / core.DOC_FILES["analysis"]
     if analysis_path.exists():
-        content = read_file(analysis_path)
-        check_content = strip_clarification_block(content)
+        check_content = core.strip_clarification_block(core.read_file(analysis_path))
         if "代码" not in check_content or "数据库" not in check_content:
-            add_issue("analysis", "分析报告未明确说明代码与数据库现状，请补充。", "analysis.content.missing_code_db")
+            collector.add("analysis", "分析报告未明确说明代码与数据库现状，请补充。", "analysis.content.missing_code_db")
         if "需求覆盖矩阵" not in check_content:
-            add_issue("analysis", "分析报告缺少需求覆盖矩阵，请补充。", "analysis.structure.missing_coverage_matrix")
-        if any(p in check_content for p in PLACEHOLDERS_EFFECTIVE):
-            add_issue("analysis", "分析报告仍包含占位内容，请补充完整。", "analysis.content.placeholder")
-        if bullet_count(check_content) < int(MIN_DOC_BULLETS.get("analysis", 0)):
-            add_issue("analysis", "分析报告信息密度不足，请补充关键要点。", "analysis.content.low_density")
+            collector.add("analysis", "分析报告缺少需求覆盖矩阵，请补充。", "analysis.structure.missing_coverage_matrix")
+        if any(p in check_content for p in core.PLACEHOLDERS_EFFECTIVE):
+            collector.add("analysis", "分析报告仍包含占位内容，请补充完整。", "analysis.content.placeholder")
+        if bullet_count(check_content) < int(core.MIN_DOC_BULLETS.get("analysis", 0)):
+            collector.add("analysis", "分析报告信息密度不足，请补充关键要点。", "analysis.content.low_density")
 
-    # PRD checks
-    prd_path = path / DOC_FILES["prd"]
+    prd_path = path / core.DOC_FILES["prd"]
     if prd_path.exists():
-        content = read_file(prd_path)
-        check_content = strip_clarification_block(content)
+        check_content = core.strip_clarification_block(core.read_file(prd_path))
         if has_prd_tech_detail(check_content):
-            add_issue("prd", "PRD 中包含实现或技术细节，请移除。", "prd.content.has_technical_detail")
+            collector.add("prd", "PRD 中包含实现或技术细节，请移除。", "prd.content.has_technical_detail")
         if "非功能性需求" not in check_content:
-            add_issue("prd", "PRD 缺少非功能性需求，请补充。", "prd.structure.missing_nfr")
-        if any(p in check_content for p in PLACEHOLDERS_EFFECTIVE):
-            add_issue("prd", "PRD 仍包含占位内容，请补充完整。", "prd.content.placeholder")
-        if bullet_count(check_content) < int(MIN_DOC_BULLETS.get("prd", 0)):
-            add_issue("prd", "PRD 信息密度不足，请补充关键要点。", "prd.content.low_density")
+            collector.add("prd", "PRD 缺少非功能性需求，请补充。", "prd.structure.missing_nfr")
+        if any(p in check_content for p in core.PLACEHOLDERS_EFFECTIVE):
+            collector.add("prd", "PRD 仍包含占位内容，请补充完整。", "prd.content.placeholder")
+        if bullet_count(check_content) < int(core.MIN_DOC_BULLETS.get("prd", 0)):
+            collector.add("prd", "PRD 信息密度不足，请补充关键要点。", "prd.content.low_density")
 
-    # Tech checks
-    tech_path = path / DOC_FILES["tech"]
+    tech_path = path / core.DOC_FILES["tech"]
     if tech_path.exists():
-        content = read_file(tech_path)
-        check_content = strip_clarification_block(content)
+        check_content = core.strip_clarification_block(core.read_file(tech_path))
         if "数据库设计" not in check_content or "SQL" not in check_content:
-            add_issue("tech", "技术方案缺少数据库设计或可执行 SQL。", "tech.structure.missing_db_or_sql")
+            collector.add("tech", "技术方案缺少数据库设计或可执行 SQL。", "tech.structure.missing_db_or_sql")
         if "数据迁移与回滚策略" not in check_content:
-            add_issue("tech", "技术方案缺少数据迁移与回滚策略，请补充。", "tech.structure.missing_migration_rollback")
-        if any(p in check_content for p in PLACEHOLDERS_EFFECTIVE):
-            add_issue("tech", "技术方案仍包含占位内容，请补充完整。", "tech.content.placeholder")
-        if bullet_count(check_content) < int(MIN_DOC_BULLETS.get("tech", 0)):
-            add_issue("tech", "技术方案信息密度不足，请补充关键要点。", "tech.content.low_density")
+            collector.add("tech", "技术方案缺少数据迁移与回滚策略，请补充。", "tech.structure.missing_migration_rollback")
+        if any(p in check_content for p in core.PLACEHOLDERS_EFFECTIVE):
+            collector.add("tech", "技术方案仍包含占位内容，请补充完整。", "tech.content.placeholder")
+        if bullet_count(check_content) < int(core.MIN_DOC_BULLETS.get("tech", 0)):
+            collector.add("tech", "技术方案信息密度不足，请补充关键要点。", "tech.content.low_density")
 
-    # Acceptance checks
-    acc_path = path / DOC_FILES["acceptance"]
-    if acc_path.exists():
-        content = read_file(acc_path)
-        check_content = strip_clarification_block(content)
-        if "| 编号 | 验收项 | 预期结果 |" not in check_content:
-            add_issue("acceptance", "验收清单缺少标准验收项表头（编号/验收项/预期结果）。", "acceptance.structure.missing_table_header")
-        if "## 验收计划与步骤" not in check_content:
-            add_issue("acceptance", "验收清单缺少“验收计划与步骤”章节。", "acceptance.structure.missing_plan_section")
-        acceptance_ids = extract_acceptance_table_ids(check_content)
-        if not acceptance_ids:
-            add_issue("acceptance", "验收项清单表中未识别到有效验收编号（A-xxx）。", "acceptance.structure.missing_acceptance_ids")
-        detail_ids = set(re.findall(r"^###\s+(A-\d+)\s+验收计划与步骤", check_content, flags=re.MULTILINE))
-        missing_details = sorted(set(acceptance_ids) - detail_ids)
-        if missing_details:
-            add_issue("acceptance", "存在验收项未提供独立的“验收计划与步骤”明细。", "acceptance.mapping.missing_plan_detail")
-        extra_details = sorted(detail_ids - set(acceptance_ids))
-        if extra_details:
-            add_issue("acceptance", "存在不在验收项清单表中的验收计划明细，请保持一一对应。", "acceptance.mapping.extra_plan_detail")
-        for aid in acceptance_ids:
-            if aid in detail_ids:
-                pattern = re.compile(
-                    rf"^###\s+{re.escape(aid)}\s+验收计划与步骤[\s\S]*?(?=^###\s+A-\d+\s+验收计划与步骤|\Z)",
-                    re.MULTILINE,
-                )
-                m = pattern.search(check_content)
-                block = m.group(0) if m else ""
-                required_terms = ("前置条件", "验收步骤", "通过标准", "失败处理")
-                if not all(term in block for term in required_terms):
-                    add_issue("acceptance", f"{aid} 缺少完整验收计划要素（前置条件/验收步骤/通过标准/失败处理）。", "acceptance.structure.missing_plan_elements")
-                    break
+    acc_path = path / core.DOC_FILES["acceptance"]
+    if not acc_path.exists():
+        return
+    check_content = core.strip_clarification_block(core.read_file(acc_path))
+    if "| 编号 | 验收项 | 预期结果 |" not in check_content:
+        collector.add("acceptance", "验收清单缺少标准验收项表头（编号/验收项/预期结果）。", "acceptance.structure.missing_table_header")
+    if "## 验收计划与步骤" not in check_content:
+        collector.add("acceptance", "验收清单缺少“验收计划与步骤”章节。", "acceptance.structure.missing_plan_section")
+    acceptance_ids = extract_acceptance_table_ids(check_content)
+    if not acceptance_ids:
+        collector.add("acceptance", "验收项清单表中未识别到有效验收编号（A-xxx）。", "acceptance.structure.missing_acceptance_ids")
+    detail_ids = set(re.findall(r"^###\s+(A-\d+)\s+验收计划与步骤", check_content, flags=re.MULTILINE))
+    missing_details = sorted(set(acceptance_ids) - detail_ids)
+    if missing_details:
+        collector.add("acceptance", "存在验收项未提供独立的“验收计划与步骤”明细。", "acceptance.mapping.missing_plan_detail")
+    extra_details = sorted(detail_ids - set(acceptance_ids))
+    if extra_details:
+        collector.add("acceptance", "存在不在验收项清单表中的验收计划明细，请保持一一对应。", "acceptance.mapping.extra_plan_detail")
 
-                step_items = extract_plan_items(extract_plan_subsection(block, "验收步骤"))
-                pass_items = extract_plan_items(extract_plan_subsection(block, "通过标准"))
-                step_action_keywords = ["触发", "执行", "调用", "提交", "输入", "点击", "查询", "请求", "发送", "读取", "检查", "核对", "观察", "记录", "验证"]
-                step_observable_keywords = ["响应", "返回", "状态", "字段", "日志", "数据库", "表", "记录", "消息", "事件", "文件", "页面", "结果", "状态码", "code"]
-                pass_assert_keywords = ["等于", "应为", "包含", "不包含", "存在", "不存在", "一致", "匹配", "状态码", "code", "返回", "字段", "日志", "数据库", "数量", "条"]
-                pass_vague_keywords = ["正常", "良好", "友好", "稳定", "无异常", "符合预期"]
+    for aid in acceptance_ids:
+        if aid not in detail_ids:
+            continue
+        pattern = re.compile(
+            rf"^###\s+{re.escape(aid)}\s+验收计划与步骤[\s\S]*?(?=^###\s+A-\d+\s+验收计划与步骤|\Z)",
+            re.MULTILINE,
+        )
+        m = pattern.search(check_content)
+        block = m.group(0) if m else ""
+        required_terms = ("前置条件", "验收步骤", "通过标准", "失败处理")
+        if not all(term in block for term in required_terms):
+            collector.add("acceptance", f"{aid} 缺少完整验收计划要素（前置条件/验收步骤/通过标准/失败处理）。", "acceptance.structure.missing_plan_elements")
+            break
+        eval_result = core.ai_evaluate_acceptance_testability(aid, block)
+        if not eval_result.get("steps_executable", False):
+            collector.add(
+                "acceptance",
+                f"{aid} 验收步骤不可执行或缺少可观测对象（需包含明确操作与观测对象）。",
+                "acceptance.testability.steps_not_executable",
+            )
+            break
+        if not eval_result.get("pass_assertable", False):
+            collector.add(
+                "acceptance",
+                f"{aid} 通过标准不可断言（需包含可验证判定，如状态码/字段值/数据变化/日志事件）。",
+                "acceptance.testability.pass_not_assertable",
+            )
+            break
+        if eval_result.get("pass_too_vague", False):
+            collector.add(
+                "acceptance",
+                f"{aid} 通过标准表述过于笼统（如“功能正常”），请改为可断言条款。",
+                "acceptance.testability.pass_too_vague",
+            )
+            break
+    if any(p in check_content for p in core.PLACEHOLDERS_EFFECTIVE):
+        collector.add("acceptance", "验收清单仍包含占位内容，请补充完整。", "acceptance.content.placeholder")
+    if bullet_count(check_content) < int(core.MIN_DOC_BULLETS.get("acceptance", 0)):
+        collector.add("acceptance", "验收清单信息密度不足，请补充关键要点。", "acceptance.content.low_density")
 
-                if not step_items or not (
-                    section_has_keywords(step_items, step_action_keywords)
-                    and section_has_keywords(step_items, step_observable_keywords)
-                ):
-                    add_issue(
-                        "acceptance",
-                        f"{aid} 验收步骤不可执行或缺少可观测对象（需包含明确操作与观测对象）。",
-                        "acceptance.testability.steps_not_executable",
-                    )
-                    break
 
-                has_assertable_pass = False
-                for it in pass_items:
-                    if any(k in it for k in pass_assert_keywords) or bool(re.search(r"[=<>]|\d", it)):
-                        has_assertable_pass = True
-                        break
-                if not pass_items or not has_assertable_pass:
-                    add_issue(
-                        "acceptance",
-                        f"{aid} 通过标准不可断言（需包含可验证判定，如状态码/字段值/数据变化/日志事件）。",
-                        "acceptance.testability.pass_not_assertable",
-                    )
-                    break
-                if all(any(v in it for v in pass_vague_keywords) for it in pass_items):
-                    add_issue(
-                        "acceptance",
-                        f"{aid} 通过标准表述过于笼统（如“功能正常”），请改为可断言条款。",
-                        "acceptance.testability.pass_too_vague",
-                    )
-                    break
-        if any(p in check_content for p in PLACEHOLDERS_EFFECTIVE):
-            add_issue("acceptance", "验收清单仍包含占位内容，请补充完整。", "acceptance.content.placeholder")
-        if bullet_count(check_content) < int(MIN_DOC_BULLETS.get("acceptance", 0)):
-            add_issue("acceptance", "验收清单信息密度不足，请补充关键要点。", "acceptance.content.low_density")
+def _rule_traceability(ctx: dict):
+    collector: IssueCollector = ctx["collector"]
+    path = ctx["path"]
 
-    # Cross-doc consistency checks (R-P-T-A traceability)
-    def collect_rids(doc_path: Path):
-        if not doc_path.exists():
-            return set()
-        return set(re.findall(r"\bR-\d+\b", strip_clarification_block(read_file(doc_path))))
+    analysis_rids = collect_rids(path / core.DOC_FILES["analysis"])
+    if not analysis_rids:
+        return
+    prd_rids = collect_rids(path / core.DOC_FILES["prd"])
+    tech_rids = collect_rids(path / core.DOC_FILES["tech"])
+    acc_rids = collect_rids(path / core.DOC_FILES["acceptance"])
+    if analysis_rids - prd_rids:
+        collector.add("prd", "PRD 缺少部分需求ID映射（R-xx），请补齐与分析报告一致。", "prd.traceability.missing_analysis_rids")
+    if analysis_rids - tech_rids:
+        collector.add("tech", "技术方案缺少部分需求ID映射（R-xx），请补齐与分析报告一致。", "tech.traceability.missing_analysis_rids")
+    if analysis_rids - acc_rids:
+        collector.add("acceptance", "验收清单缺少部分需求ID映射（R-xx），请补齐与分析报告一致。", "acceptance.traceability.missing_analysis_rids")
+    if prd_rids - acc_rids:
+        collector.add("acceptance", "验收清单未覆盖部分 PRD 需求ID（R-xx），请补齐验收项。", "acceptance.traceability.missing_prd_rids")
+    if tech_rids - acc_rids:
+        collector.add("acceptance", "验收清单未覆盖部分技术方案需求ID（R-xx），请补齐验收项。", "acceptance.traceability.missing_tech_rids")
 
-    analysis_rids = collect_rids(path / DOC_FILES["analysis"])
-    if analysis_rids:
-        prd_rids = collect_rids(path / DOC_FILES["prd"])
-        tech_rids = collect_rids(path / DOC_FILES["tech"])
-        acc_rids = collect_rids(path / DOC_FILES["acceptance"])
-        if analysis_rids - prd_rids:
-            add_issue("prd", "PRD 缺少部分需求ID映射（R-xx），请补齐与分析报告一致。", "prd.traceability.missing_analysis_rids")
-        if analysis_rids - tech_rids:
-            add_issue("tech", "技术方案缺少部分需求ID映射（R-xx），请补齐与分析报告一致。", "tech.traceability.missing_analysis_rids")
-        if analysis_rids - acc_rids:
-            add_issue("acceptance", "验收清单缺少部分需求ID映射（R-xx），请补齐与分析报告一致。", "acceptance.traceability.missing_analysis_rids")
+    acc_doc = path / core.DOC_FILES["acceptance"]
+    acc_content = core.strip_clarification_block(core.read_file(acc_doc)) if acc_doc.exists() else ""
+    rid_to_aids = extract_acceptance_rid_to_aids(acc_content) if acc_content else {}
+    missing_rid_acceptance = sorted([rid for rid in analysis_rids if rid not in rid_to_aids])
+    if missing_rid_acceptance:
+        collector.add("acceptance", "存在需求ID缺少明确验收项映射（R-xx -> A-xxx），请补齐验收项清单或标题映射。", "acceptance.traceability.missing_rid_to_aid")
+    orphan_acceptance_rids = sorted(acc_rids - analysis_rids)
+    if orphan_acceptance_rids:
+        collector.add("acceptance", "验收清单包含未在分析报告定义的需求ID（R-xx），请统一口径。", "acceptance.traceability.orphan_rids")
 
-        # Ensure R IDs in PRD/TECH are accepted by acceptance coverage.
-        if prd_rids - acc_rids:
-            add_issue("acceptance", "验收清单未覆盖部分 PRD 需求ID（R-xx），请补齐验收项。", "acceptance.traceability.missing_prd_rids")
-        if tech_rids - acc_rids:
-            add_issue("acceptance", "验收清单未覆盖部分技术方案需求ID（R-xx），请补齐验收项。", "acceptance.traceability.missing_tech_rids")
 
-        acc_content = strip_clarification_block(read_file(path / DOC_FILES["acceptance"])) if (path / DOC_FILES["acceptance"]).exists() else ""
-        rid_to_aids = extract_acceptance_rid_to_aids(acc_content) if acc_content else {}
-        missing_rid_acceptance = sorted([rid for rid in analysis_rids if rid not in rid_to_aids])
-        if missing_rid_acceptance:
-            add_issue("acceptance", "存在需求ID缺少明确验收项映射（R-xx -> A-xxx），请补齐验收项清单或标题映射。", "acceptance.traceability.missing_rid_to_aid")
-        orphan_acceptance_rids = sorted(acc_rids - analysis_rids)
-        if orphan_acceptance_rids:
-            add_issue("acceptance", "验收清单包含未在分析报告定义的需求ID（R-xx），请统一口径。", "acceptance.traceability.orphan_rids")
+def _rule_dependency_freshness(ctx: dict):
+    collector: IssueCollector = ctx["collector"]
+    raw_doc_contents = ctx.get("raw_doc_contents", {})
+    meta = ctx.get("meta", {})
+    metadata_changed = ctx.get("metadata_changed", False)
 
-    # Dependency freshness checks by content hash snapshots:
-    # analysis -> prd -> tech -> acceptance
     doc_hashes = {}
     for key in ("analysis", "prd", "tech", "acceptance"):
-        p = path / DOC_FILES[key]
-        if not p.exists():
-            continue
-        doc_hashes[key] = content_hash_without_clarifications(read_file(p))
+        p = ctx["path"] / core.DOC_FILES[key]
+        if p.exists():
+            doc_hashes[key] = core.content_hash_without_clarifications(core.read_file(p))
 
     dep_graph = {
         "prd": ["analysis"],
@@ -404,8 +373,6 @@ def final_check(path: Path, write_back: bool = True):
         "acceptance": ["analysis", "prd", "tech"],
     }
     dep_state = meta.get("doc_dependency_state", {}) if isinstance(meta.get("doc_dependency_state"), dict) else {}
-    if not isinstance(dep_state, dict):
-        dep_state = {}
     next_dep_state = dict(dep_state)
 
     for doc_key, upstreams in dep_graph.items():
@@ -419,16 +386,14 @@ def final_check(path: Path, write_back: bool = True):
         current_doc_hash = doc_hashes[doc_key]
         current_up_hashes = {k: doc_hashes[k] for k in upstreams}
         current_raw = raw_doc_contents.get(doc_key, "")
-        sig_map = extract_dependency_signatures(current_raw)
+        sig_map = core.extract_dependency_signatures(current_raw)
         has_all_signatures = all(k in sig_map for k in upstreams)
         signatures_match = has_all_signatures and all(sig_map.get(k, "") == v for k, v in current_up_hashes.items())
-
         if not has_all_signatures:
-            add_issue(doc_key, f"{DOC_FILES[doc_key]} 缺少依赖签名区块，请补充 {DEP_SIG_START}/{DEP_SIG_END} 并写入上游哈希。", f"{doc_key}.dependency.missing_signature")
+            collector.add(doc_key, f"{core.DOC_FILES[doc_key]} 缺少依赖签名区块，请补充 {core.DEP_SIG_START}/{core.DEP_SIG_END} 并写入上游哈希。", f"{doc_key}.dependency.missing_signature")
         elif not signatures_match:
-            add_issue(doc_key, f"{DOC_FILES[doc_key]} 依赖签名与当前上游不一致，请基于上游最新文档重生成。", f"{doc_key}.dependency.signature_mismatch")
+            collector.add(doc_key, f"{core.DOC_FILES[doc_key]} 依赖签名与当前上游不一致，请基于上游最新文档重生成。", f"{doc_key}.dependency.signature_mismatch")
 
-        # If downstream content changed and signatures are valid, refresh dependency snapshot.
         if (not prev_doc_hash or prev_doc_hash != current_doc_hash) and signatures_match:
             next_dep_state[doc_key] = {
                 "doc_hash": current_doc_hash,
@@ -437,48 +402,76 @@ def final_check(path: Path, write_back: bool = True):
             metadata_changed = True
             continue
 
-        # Downstream content unchanged: verify upstream hashes have not drifted.
         stale = any(str(prev_up_hashes.get(k, "")) != v for k, v in current_up_hashes.items())
         if stale:
             chain = " -> ".join(upstreams + [doc_key])
-            add_issue(doc_key, f"上游文档内容已变更，但 {doc_key} 未同步更新（依赖链：{chain}）。", f"{doc_key}.dependency.stale_downstream")
+            collector.add(doc_key, f"上游文档内容已变更，但 {doc_key} 未同步更新（依赖链：{chain}）。", f"{doc_key}.dependency.stale_downstream")
 
     if metadata_changed:
         meta["doc_dependency_state"] = next_dep_state
+    ctx["metadata_changed"] = metadata_changed
+    ctx["meta"] = meta
 
+
+def _rule_clarification_status(ctx: dict):
+    collector: IssueCollector = ctx["collector"]
+    clar_path = ctx["clar_path"]
     if not clar_path.exists():
         raise SystemExit("clarifications file not found")
-    clar_content = read_file(clar_path)
-    rows, _ = parse_clarifications_table(clar_content)
+    clar_content = core.read_file(clar_path)
+    rows, _ = core.parse_clarifications_table(clar_content)
     for row in rows:
         status = row.get("status", "").strip()
-        if status and status not in CLARIFY_STATUSES:
-            add_issue("global", f"澄清文档存在非法状态值：{status}，请使用配置允许状态。", "global.clarification.invalid_status")
+        if status and status not in core.CLARIFY_STATUSES:
+            collector.add("global", f"澄清文档存在非法状态值：{status}，请使用配置允许状态。", "global.clarification.invalid_status")
     existing_questions = set(r.get("question", "") for r in rows)
 
     new_items = []
-    for issue in issues:
+    for issue in collector.issues:
         if not bool(issue.get("needs_clarification", False)):
             continue
         if issue["question"] in existing_questions:
             continue
         new_items.append({
-            "id": next_clarify_id(rows),
+            "id": core.next_clarify_id(rows),
             "doc": issue["doc"],
             "question": issue["question"],
         })
         rows.append({"id": new_items[-1]["id"]})
 
-    if new_items and write_back:
-        new_items = new_items[:MAX_NEW_CLARIFICATIONS_PER_ROUND]
-        updated = add_clarifications(clar_content, new_items)
-        persist_clarifications(path, updated, dry_run=False)
-    if metadata_changed and write_back:
+    if new_items and ctx["write_back"]:
+        new_items = new_items[:core.MAX_NEW_CLARIFICATIONS_PER_ROUND]
+        updated = core.add_clarifications(clar_content, new_items)
+        core.persist_clarifications(ctx["path"], updated, dry_run=False)
+
+
+CHECK_RULES: tuple[Callable[[dict], None], ...] = (
+    _rule_global_memory_sync,
+    _rule_required_docs,
+    _rule_doc_quality,
+    _rule_traceability,
+    _rule_dependency_freshness,
+    _rule_clarification_status,
+)
+
+
+def final_check(path: Path, write_back: bool = True):
+    ctx = {
+        "path": path,
+        "write_back": write_back,
+        "collector": IssueCollector(),
+        "meta": {},
+        "meta_version": None,
+        "metadata_changed": False,
+    }
+    for rule in CHECK_RULES:
+        rule(ctx)
+    if ctx.get("metadata_changed") and write_back:
+        meta_version = ctx.get("meta_version")
         if meta_version is None:
             raise SystemExit("metadata.json not found, run init first")
-        save_metadata_file(path, meta, dry_run=False, expected_version=meta_version)
-
-    return issues
+        core.save_metadata_file(path, ctx["meta"], dry_run=False, expected_version=meta_version)
+    return ctx["collector"].issues
 
 
 def has_unconfirmed(rows):
@@ -487,7 +480,7 @@ def has_unconfirmed(rows):
         question = r.get("question", "").strip()
         if question.startswith("（示例）"):
             continue
-        if question and (status != CONFIRMED_STATUS or (status and status not in CLARIFY_STATUSES)):
+        if question and (status != core.CONFIRMED_STATUS or (status and status not in core.CLARIFY_STATUSES)):
             return True
     return False
 
@@ -499,7 +492,7 @@ def list_unconfirmed(rows):
         question = r.get("question", "").strip()
         if not question or question.startswith("（示例）"):
             continue
-        if status != CONFIRMED_STATUS or (status and status not in CLARIFY_STATUSES):
+        if status != core.CONFIRMED_STATUS or (status and status not in core.CLARIFY_STATUSES):
             pending.append((r.get("id", ""), question))
     return pending
 
@@ -508,21 +501,21 @@ def resolve_path(args):
     if args.path:
         return Path(args.path)
     if args.name:
-        matches = find_requirement(args.name)
+        matches = core.find_requirement(args.name)
         if len(matches) == 1:
             return matches[0]
         if len(matches) > 1:
             candidates = "\n".join([f"- {m}" for m in matches])
             raise SystemExit(f"multiple requirements found for name={args.name}, use --path:\n{candidates}")
         raise SystemExit("requirement not found")
-    active = get_active()
+    active = core.get_active()
     if active:
         return active
     raise SystemExit("no active requirement, use --name or --path")
 
 
 def load_metadata(path: Path) -> dict:
-    return load_metadata_file(path)
+    return core.load_metadata_file(path)
 
 
 def _meta_context(path: Path) -> tuple[str, str, str]:

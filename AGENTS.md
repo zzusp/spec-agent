@@ -6,6 +6,24 @@ This repository follows the Cursor Plugin layout (see `.cursor-plugin/plugin.jso
 
 Use `spec-agent-chat` as the unified conversational entry in AI IDE; `spec-agent-task` remains the direct full-spec generation command when user explicitly calls it.
 
+## Documentation source hierarchy (single source of truth)
+
+**Canonical source**: **AGENTS.md (this file)** is the single source of truth for workflow, command contract, and guardrails. Other docs must not redefine or duplicate these; they reference AGENTS.md or supply only supplementary content.
+
+Precedence when content overlaps:
+
+1. **AGENTS.md (this file)**: normative workflow, command contract, and hard guardrails.
+2. **skills/*/SKILL.md**: skill-specific execution details; must not contradict AGENTS.md.
+3. **commands/*.md**: slash-command entry wrappers; point to SKILL.md and AGENTS.md, not redefine contracts.
+4. **README.md / QUICKSTART.md**: onboarding and examples; informational only. Contract details → AGENTS.md.
+5. **docs/PLUGIN-AND-SKILL-COMPLIANCE.md**: compliance explanation and rationale; informational only. Contract → AGENTS.md.
+
+**Conflict rule**: If any wording conflicts, **AGENTS.md wins**.
+
+**Update rule**: For contract/process changes, update **AGENTS.md first**, then align other docs by reference (avoid duplicating long normative blocks).
+
+**Consistency**: QUICKSTART.md and PLUGIN-AND-SKILL-COMPLIANCE.md do not duplicate command tables, path rules, or init/task boundaries from AGENTS.md; they link or summarize. When editing those docs, verify alignment with AGENTS.md to reduce drift.
+
 ## When to trigger `spec-agent`
 
 Trigger split skills when user intent includes any of:
@@ -33,10 +51,9 @@ Trigger split skills when user intent includes any of:
   - global memory (`spec/00-global-memory.md`)
   - confirmed clarifications (`00-clarifications.md` as source of truth, `.json` as mirror)
   - for `prd/tech/acceptance`, include dependency signatures:
-  - **修订记录**：五份文档（`analysis` / `PRD` / `tech` / `acceptance` / `clarifications`）均包含「## 修订记录」表（修订日期 yyyy-MM-dd、修订人、修订内容摘要）。凡会修改上述文档的 skill 在每次更新文档时，必须在该文档的修订记录表中追加一行。
-  - for `prd/tech/acceptance`, include dependency signatures:
     - `<!-- DEPENDENCY-SIGNATURE:START --> ... <!-- DEPENDENCY-SIGNATURE:END -->`
     - signature values must match current upstream content hashes
+  - **修订记录**：五份文档（`analysis` / `PRD` / `tech` / `acceptance` / `clarifications`）均包含「## 修订记录」表（修订日期 yyyy-MM-dd、修订人、修订内容摘要）。凡会修改上述文档的 skill 在每次更新文档时，必须在该文档的修订记录表中追加一行。
 6. Scripts are used for state/check gates (`sync-memory`, `init`, `check-clarifications`, `final-check`).
   - **spec-agent-init** (when invoked standalone): Uses **fixed date** `--date 0000-00-00` so the requirement path is `spec/0000-00-00/project-spec/`. First judge if the user's project is **empty** (no source dirs/code files). **Empty** → `init --state-only` (skeleton only). **Non-empty** → `init` without `--state-only` (creates all doc templates), then caller AI fills 01/02/03; 04 and clarifications remain default. See `skills/spec-agent-init/SKILL.md`.
   - When using stage subagents, also use:
@@ -45,6 +62,23 @@ Trigger split skills when user intent includes any of:
     - `subagent-stage`
     - `subagent-status`
 7. Repeat clarification loop until checks pass.
+
+## Entry decision (init vs task)
+
+Use this decision order to avoid mixing `spec-agent-init` and `spec-agent-task`:
+
+1. Default conversational entry:
+   - `/spec-agent-chat <message>`
+2. Requirement-specific full spec generation (date-based requirement workspace):
+   - `/spec-agent-task <raw_requirement>`
+3. Project baseline initialization at fixed path `spec/0000-00-00/project-spec/`:
+   - `/spec-agent-init <message>`
+
+Practical boundary:
+- `spec-agent-task`: for **new requirement delivery** and iterative requirement docs.
+- `spec-agent-init`: for **project-level bootstrap/refresh** at fixed path (empty-vs-non-empty logic).
+- Do not use `spec-agent-init` as the default command for every new requirement.
+- See `docs/INIT-VS-TASK-DECISION-TREE.md` for examples and anti-patterns.
 
 ## Command contract (single source of truth)
 
@@ -65,6 +99,8 @@ Trigger split skills when user intent includes any of:
 | `subagent-stage`       | target requirement + `--stage` + `--status`                                                                                                                                       | stage update result                                                                                                 | update stage status / hashes; may downgrade downstream to pending; for `final_check failed` auto-map issues to reopen stage |
 | `subagent-status`      | target requirement, optional `--normalize`                                                                                                                                        | stage matrix + stale stages                                                                                         | default no write; with `--normalize` writes stale stages back to `pending`                                                  |
 
+
+> AI 判定说明：当 `init` 未显式传入 `--project-mode`（即 `auto`）或未传 `--name` 需要自动命名时，运行时会调用 AI 判定命令。需配置环境变量 `SPEC_AGENT_AI_JUDGE_COMMAND` 或配置项 `ai_judge_command`；判定失败时会直接报错，不做关键字兜底。
 
 ## Multi-requirement rules
 

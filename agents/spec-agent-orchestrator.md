@@ -16,7 +16,7 @@ Use when user asks for full requirement delivery via `/spec-agent-task` or when 
 ## Workflow
 
 1. Parse raw requirement; generate `name`, `title`, `project_mode` (greenfield/existing).
-2. Run init in state-only mode with `project_mode`; run `subagent-init`. (When the user invokes **spec-agent-init** directly instead of task, init follows empty vs non-empty project logic per `skills/spec-agent-init/SKILL.md`.)
+2. Run init in state-only mode with `project_mode`; then run `sync-memory` and `subagent-init`. (When the user invokes **spec-agent-init** directly instead of task, init follows empty vs non-empty project logic per `skills/spec-agent-init/SKILL.md`.)
 3. For each stage (analysis, prd, tech, acceptance): call `subagent-context --stage <stage>`, consume `target_sections`, `must_keep_sections`, `reopen_reason`, `project_mode`, `clarification_focus`; write doc; then `subagent-stage --status completed`.
 4. Run `check-clarifications` (--strict when requested) and `final-check`.
 5. If issues=0: `subagent-stage --stage final_check --status completed`. If issues>0: mark final_check failed (auto-reopen mapping applies).

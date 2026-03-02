@@ -2,6 +2,8 @@
 
 本文档说明当前项目与 Cursor Plugin / Skill 规范的对应关系，以及脚本使用、Skill 触发方式的约定。
 
+> **规范与契约的唯一来源**：命令契约、路径策略、init vs task 边界等以 **AGENTS.md** 为准。本文档为符合性说明与 rationale，不重新定义契约；具体子命令、参数、init/task 决策见 AGENTS.md 与 `docs/INIT-VS-TASK-DECISION-TREE.md`。
+
 ## 1. Plugin 清单 (plugin.json)
 
 - **规范**：符合 [plugin.schema.json](https://github.com/cursor/plugins/blob/main/schemas/plugin.schema.json)。`name` 为 kebab-case；`skills`、`agents`、`rules` 为相对路径。
@@ -23,7 +25,7 @@
 
 - **规范**：Plugin 可依赖“由 AI 在遵循 Skill 说明时执行的命令”。官方示例（如 cursor-team-kit）多使用系统 CLI（如 `gh`、`git`）；也可使用插件自带的脚本，由 Skill 文档约定调用方式。
 - **当前**：
-  - 唯一入口脚本：`scripts/spec_agent.py`，从**插件（仓库）根目录**执行。
+  - 唯一入口脚本：`scripts/spec_agent.py`，从**用户项目根目录**执行（当前工作目录 CWD，即 AI IDE 工作区根目录；可用 `SPEC_AGENT_PROJECT_ROOT` 覆盖）。
   - 调用形式：`python scripts/spec_agent.py <subcommand> [--name <name>] [其他参数]`。所有子命令与入参以 `AGENTS.md` 的 “Command contract” 为**单一事实来源**。
   - 各 Skill 仅描述**何时**、**何种顺序**调用哪些子命令；具体子命令名、参数以 AGENTS.md 及技能内 “Run”/“Commands” 为准。
 - **结论**：符合规范。脚本作为“状态与质量门禁”工具，由 AI 按技能说明在正确时机执行；同时通过 plugin 的 **Commands** 暴露常用子命令，便于 Agent/用户发现与执行。
@@ -32,7 +34,7 @@
 
 - **作用**：`scripts/spec-agent.config.json` 是**脚本运行时配置**，仅被 `scripts/spec_agent.py`（及引擎 `spec_agent_engine_core.py`）在启动时加载，与 Cursor 的 `.cursor-plugin/plugin.json` **无隶属关系**。Plugin 清单描述“插件有哪些 skills/agents/rules/commands/hooks”；该文件描述“脚本执行时的行为参数”（目录、澄清表结构、锁超时、默认 project_mode 等）。配置与脚本同目录，便于维护。
 - **规范符合性**：Cursor Plugin / Skill 规范**未定义**也**未禁止**“插件自有的配置文件”。官方只约定 manifest、rules、skills、agents、commands、hooks、mcpServers；脚本如何读配置是实现细节。当前做法（`scripts/` 下独立 JSON、脚本单源加载）符合规范，且职责清晰：Plugin 资源由 Cursor 解析，运行时参数由脚本解析。
-- **主要配置项**：`spec_dir`、`date_format`、`clarify_columns` / `clarify_statuses` / `clarify_confirmed_status`、`dry_run_default`、`default_project_mode`、`metadata_lock_*` / `requirement_lock_*` 等；详见 `scripts/spec_agent_engine_core.py` 内 `DEFAULT_CONFIG` 与 `validate_config`。如需定制行为，直接编辑该 JSON；Skills 仅描述“何时调用哪些子命令”，不覆盖这些键。
+- **主要配置项**：`spec_dir`、`date_format`、`clarify_columns` / `clarify_statuses` / `clarify_confirmed_status`、`dry_run_default`、`default_project_mode`、`ai_judge_command` / `ai_judge_timeout_sec`、`metadata_lock_*` / `requirement_lock_*` 等；详见 `scripts/spec_agent_engine_core.py` 内 `DEFAULT_CONFIG` 与 `validate_config`。如需定制行为，直接编辑该 JSON；Skills 仅描述“何时调用哪些子命令”，不覆盖这些键。
 - **结论**：保持现有实现即可；无需把配置迁入 plugin.json（schema 无对应字段，且会混淆“给 Cursor 用的清单”与“给脚本用的参数”）。若需在文档中集中说明可配置项，可在 README 或本文档中增加配置说明表或链接到引擎默认值。
 
 ## 5. Skill 间关系与引用
@@ -51,15 +53,14 @@
 
 - **规范**：Plugin 可将“可由 Agent 执行的命令”放在 `commands/` 目录，每文件为 `.md`/`.mdc`/`.txt`，含 frontmatter `name`、`description` 及正文步骤；Cursor 会做组件发现并供 Agent/用户发现与执行。
 - **当前**：`commands/` 下提供两类命令：
-  - **脚本子命令（6 个）**：对应 `spec_agent.py` 常用子命令，供直接执行或由技能内引用。
-    - `spec-init`：初始化需求工作区（由 spec-agent-init 调用时使用固定日期与名称，路径 `spec/0000-00-00/project-spec/`；空项目 state-only，非空项目 full init 后 caller 填写 01/02/03，见 `skills/spec-agent-init/SKILL.md`）
+  - **脚本子命令（6 个）**：对应 `spec_agent.py` 常用子命令，供直接执行或由技能内引用。子命令契约与 init/task 边界以 **AGENTS.md § Command contract**、§ Entry decision 及 **docs/INIT-VS-TASK-DECISION-TREE.md** 为准；init 固定路径与空/非空分支见 `skills/spec-agent-init/SKILL.md`。
     - `spec-final-check`：对当前/指定需求做终检
     - `spec-check-clarifications`：检查待确认澄清数量（可 `--strict` 作门禁）
     - `spec-set-active`：设置当前活跃需求
     - `spec-sync-memory`：将全局记忆同步到需求元数据
     - `spec-list`：列出需求目录
   - **技能同名命令（9 个）**：与 `skills/` 下各技能同名（如 `spec-agent-task`、`spec-agent-chat` 等），用于保证用户输入 `/spec-agent-xxx` 时稳定触发对应技能；命令正文要求 AI 按 `skills/spec-agent-xxx/SKILL.md` 执行。
-- **使用**：在 IDE/CLI/Cloud 中，Agent 或用户可通过插件暴露的 Command 名称执行上述操作；脚本类命令正文中写明从仓库根目录执行 `python scripts/spec_agent.py <subcommand> ...`，完整契约以 AGENTS.md 为准。
+- **使用**：在 IDE/CLI/Cloud 中，Agent 或用户可通过插件暴露的 Command 名称执行上述操作；脚本类命令应在用户项目根目录执行 `python scripts/spec_agent.py <subcommand> ...`（或设置 `SPEC_AGENT_PROJECT_ROOT`），完整契约以 AGENTS.md 为准。
 
 ### Hooks（事件触发自动化）
 

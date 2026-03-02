@@ -12,6 +12,8 @@ disable-model-invocation: true
 
 **Examples**: `/spec-agent-task Fix login timeout` · `/spec-agent-task New requirement: add export to CSV`
 
+**Boundary**: For “init vs task vs chat” and path strategy (date vs fixed), see **docs/INIT-VS-TASK-DECISION-TREE.md** and AGENTS.md § Entry decision.
+
 ## Child skills
 
 - `spec-agent-memory`
@@ -58,10 +60,13 @@ disable-model-invocation: true
 
 1. Read `spec/00-global-memory.md` and inject global constraints into drafting context.
 2. If current target requirement is not the desired one, switch context via `spec-agent-switch`.
-3. Sync memory snapshot to requirement metadata.
-4. Run init in state-only mode (no template content generation) and pass `project_mode`. (This is the **task-orchestrated** flow; when the user invokes **spec-agent-init** directly, that skill uses empty vs non-empty project logic and may run full init—see `spec-agent-init` SKILL.)
+3. Run init in state-only mode (no template content generation) and pass `project_mode`. (This is the **task-orchestrated** flow; when the user invokes **spec-agent-init** directly, that skill uses empty vs non-empty project logic and may run full init—see `spec-agent-init` SKILL.)
 ```bash
 python scripts/spec_agent.py init --name <name> --title "<title>" --desc "<raw_requirement>" --state-only --project-mode <greenfield|existing>
+```
+4. Sync memory snapshot to requirement metadata:
+```bash
+python scripts/spec_agent.py sync-memory --name <name>
 ```
 5. Initialize stage orchestration state:
 ```bash

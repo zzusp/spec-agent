@@ -7,6 +7,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 # Cursor Plugin layout: skills live under skills/ (see .cursor-plugin/plugin.json)
 SKILLS_ROOT = ROOT / "skills"
+COMMANDS_ROOT = ROOT / "commands"
 
 
 def parse_frontmatter(text: str) -> dict[str, str]:
@@ -119,6 +120,53 @@ def validate_skill_associations(skill_dirs: list[Path], known_names: set[str]) -
             )
 
 
+def _must_contain(path: Path, needle: str) -> None:
+    text = path.read_text(encoding="utf-8")
+    if needle not in text:
+        raise RuntimeError(f"{path} missing required text: {needle}")
+
+
+def _must_not_contain(path: Path, needle: str) -> None:
+    text = path.read_text(encoding="utf-8")
+    if needle in text:
+        raise RuntimeError(f"{path} contains forbidden text: {needle}")
+
+
+def validate_doc_runtime_contracts() -> None:
+    command_files = [
+        COMMANDS_ROOT / "spec-final-check.md",
+        COMMANDS_ROOT / "spec-check-clarifications.md",
+        COMMANDS_ROOT / "spec-list.md",
+        COMMANDS_ROOT / "spec-set-active.md",
+        COMMANDS_ROOT / "spec-sync-memory.md",
+    ]
+    for command_file in command_files:
+        _must_contain(command_file, "Run from user project root")
+        _must_not_contain(command_file, "Run from repository root")
+
+    task_skill = (SKILLS_ROOT / "spec-agent-task" / "SKILL.md").read_text(encoding="utf-8")
+    init_idx = task_skill.find("python scripts/spec_agent.py init --name <name>")
+    sync_idx = task_skill.find("python scripts/spec_agent.py sync-memory --name <name>")
+    if init_idx == -1 or sync_idx == -1:
+        raise RuntimeError("skills/spec-agent-task/SKILL.md missing init or sync-memory command example")
+    if init_idx > sync_idx:
+        raise RuntimeError("skills/spec-agent-task/SKILL.md must run init before sync-memory")
+
+    init_skill = SKILLS_ROOT / "spec-agent-init" / "SKILL.md"
+    _must_not_contain(init_skill, "no .active switching")
+    _must_not_contain(init_skill, "不需要切换 `spec/.active`")
+    _must_not_contain(init_skill, "禁止读取")
+    _must_contain(init_skill, "set-active --path spec/0000-00-00/project-spec")
+
+    compliance_doc = ROOT / "docs" / "PLUGIN-AND-SKILL-COMPLIANCE.md"
+    _must_contain(compliance_doc, "用户项目根目录")
+    _must_not_contain(compliance_doc, "从仓库根目录执行")
+
+    summary_doc = ROOT / "docs" / "开发规范与流程总结.md"
+    _must_contain(summary_doc, "/spec-agent-chat")
+    _must_not_contain(summary_doc, "入口技能为 `spec-agent-task`")
+
+
 def main():
     skills = iter_split_skills()
     if not skills:
@@ -128,6 +176,7 @@ def main():
     for skill_dir in skills:
         validate_split_skill(skill_dir)
     validate_skill_associations(skills, known_names)
+    validate_doc_runtime_contracts()
     print(f"regression split skill contract: ok ({len(skills)} skills, associations valid)")
 
 

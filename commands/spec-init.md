@@ -11,7 +11,7 @@ Initialize requirement workspace. Run from user project root (CWD or `SPEC_AGENT
 
 - **Fixed date and name**: Use `--date 0000-00-00` and `--name project-spec`; requirement path is `spec/0000-00-00/project-spec/`.
 - **Empty project** (no source dirs like `src/`/`lib/`/`app/` or no code files): run init with `--state-only --date 0000-00-00 --name project-spec`. Output: requirement directory, metadata, clarification baseline, `spec/.active`; no 01–04 doc files.
-- **Non-empty project**: run init **without** `--state-only` and with `--date 0000-00-00 --name project-spec`; then caller AI overwrites `01-analysis.md`, `02-prd.md`, `03-tech.md`; `04-acceptance.md` and clarifications stay default. If `spec/0000-00-00/project-spec/` already exists, do not run init; work directly in that path and update 01/02/03.
+- **Non-empty project**: run init **without** `--state-only` and with `--date 0000-00-00 --name project-spec`; then caller AI overwrites `01-analysis.md`, `02-prd.md`, `03-tech.md`; `04-acceptance.md` and clarifications stay default. If `spec/0000-00-00/project-spec/` already exists, do not run init; first run `set-active --path spec/0000-00-00/project-spec`, then work directly in that path and update 01/02/03.
 
 ## Steps
 

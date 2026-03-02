@@ -5,7 +5,7 @@ description: List requirements (by date directory). Use to discover requirement 
 
 # Spec list
 
-List requirements. Run from repository root.
+List requirements. Run from user project root (CWD or `SPEC_AGENT_PROJECT_ROOT`).
 
 ## Steps
 

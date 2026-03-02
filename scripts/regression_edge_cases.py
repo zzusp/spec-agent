@@ -8,25 +8,16 @@ import subprocess
 import sys
 import time
 from pathlib import Path
+from regression_lib import run_spec_agent
 
 ROOT = Path(__file__).resolve().parents[1]
-PY = [sys.executable, str(ROOT / "scripts" / "spec_agent.py")]
 CFG = ROOT / "scripts" / "spec-agent.config.json"
 BACKUP = ROOT / "scripts" / "spec-agent.config.backup.test.json"
 
 
-def run(args, check=True, timeout=None):
+def run(args, check=True, timeout=None, env=None):
     """Run spec_agent.py with optional timeout (seconds). Used by lock test to avoid indefinite block."""
-    p = subprocess.run(
-        PY + args,
-        cwd=str(ROOT),
-        capture_output=True,
-        text=True,
-        timeout=timeout,
-    )
-    if check and p.returncode != 0:
-        raise RuntimeError(f"command failed: {' '.join(PY + args)}\n{p.stdout}\n{p.stderr}")
-    return p
+    return run_spec_agent(args, root=ROOT, check=check, timeout=timeout, env=env)
 
 
 def remove_dir(path: Path):
@@ -132,6 +123,7 @@ def test_live_lock_owner_not_stolen_by_stale_policy():
         )
         env = os.environ.copy()
         env["PYTHONPATH"] = str(ROOT / "scripts")
+        env["SPEC_AGENT_AI_JUDGE_COMMAND"] = AI_JUDGE_CMD
         holder = subprocess.Popen(
             [sys.executable, "-c", holder_code],
             cwd=str(ROOT),
@@ -192,6 +184,7 @@ def test_concurrent_init_same_name_not_overwritten():
     remove_dir(req_dir)
     env = os.environ.copy()
     env["PYTHONPATH"] = str(ROOT / "scripts")
+    env["SPEC_AGENT_AI_JUDGE_COMMAND"] = AI_JUDGE_CMD
     holder = None
     try:
         holder_code = (
@@ -242,9 +235,9 @@ def test_concurrent_init_same_name_not_overwritten():
             "--date",
             date,
         ]
-        p_a = subprocess.Popen(cmd_a, cwd=str(ROOT), stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        p_a = subprocess.Popen(cmd_a, cwd=str(ROOT), stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=env)
         time.sleep(0.05)
-        p_b = subprocess.Popen(cmd_b, cwd=str(ROOT), stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        p_b = subprocess.Popen(cmd_b, cwd=str(ROOT), stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=env)
         out_a, err_a = p_a.communicate(timeout=10)
         out_b, err_b = p_b.communicate(timeout=10)
 
@@ -381,6 +374,31 @@ def test_init_without_name_auto_generated():
         raise RuntimeError("metadata title mismatch with init output title")
 
     remove_dir(created)
+
+
+def test_init_auto_mode_requires_ai_judge():
+    date = dt.date.today().strftime("%Y-%m-%d")
+    p = run(
+        [
+            "init",
+            "--name",
+            "edge-ai-required",
+            "--title",
+            "AI 判定必需",
+            "--desc",
+            "这是一个需求描述，但不显式指定 project_mode",
+            "--date",
+            date,
+        ],
+        check=False,
+        env={"SPEC_AGENT_AI_JUDGE_COMMAND": ""},
+    )
+    if p.returncode == 0:
+        raise RuntimeError("expected init to fail when project_mode is auto and AI judge is not configured")
+    msg = (p.stderr or "") + "\n" + (p.stdout or "")
+    if "AI 判定未配置" not in msg:
+        raise RuntimeError(f"unexpected error when AI judge missing: {msg}")
+    remove_dir(ROOT / "spec" / date / "edge-ai-required")
 
 
 def test_init_rejects_multiple_desc_sources():
@@ -723,6 +741,7 @@ def main():
         test_concurrent_init_same_name_not_overwritten()
         test_structured_db_connections_saved()
         test_init_without_name_auto_generated()
+        test_init_auto_mode_requires_ai_judge()
         test_init_rejects_multiple_desc_sources()
         test_scan_includes_scripts_module()
         test_inspect_db_inserts_marker_and_masks_secret()

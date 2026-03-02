@@ -5,7 +5,7 @@ description: Set the active requirement by name or path. Use when switching cont
 
 # Spec set-active
 
-Set active requirement. Run from repository root.
+Set active requirement. Run from user project root (CWD or `SPEC_AGENT_PROJECT_ROOT`).
 
 ## Steps
 

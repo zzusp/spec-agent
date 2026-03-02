@@ -5,7 +5,7 @@ description: Sync global memory snapshot to the active (or named) requirement me
 
 # Spec sync-memory
 
-Sync global memory to requirement metadata. Run from repository root.
+Sync global memory to requirement metadata. Run from user project root (CWD or `SPEC_AGENT_PROJECT_ROOT`).
 
 ## Steps
 

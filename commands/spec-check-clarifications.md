@@ -5,7 +5,7 @@ description: Check unresolved clarification count. Use with --strict to fail whe
 
 # Spec check-clarifications
 
-Check clarification status. Run from repository root.
+Check clarification status. Run from user project root (CWD or `SPEC_AGENT_PROJECT_ROOT`).
 
 ## Steps
 

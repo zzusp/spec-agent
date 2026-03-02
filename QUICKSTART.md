@@ -2,6 +2,8 @@
 
 在 AI IDE 中直接使用 spec-agent 的步骤与常见场景。
 
+> **规范与契约的唯一来源**：工作流、命令契约、路径与 init/task 边界等以 **AGENTS.md** 为准。本文档仅做入门与示例，不重复定义契约；详见 AGENTS.md § Documentation source hierarchy、§ Command contract、§ Entry decision (init vs task)。
+
 ## 在 AI IDE 中使用
 
 ### spec-agent-init 使用示例
@@ -16,8 +18,7 @@
 - 或直接：`/spec-agent-task 现在产品提了一个新需求，需求如下：……`
 - 若有数据库信息，可同一句里追加（连接地址、库名、只读账号等）。
 - 若要明确澄清策略场景，可说明：`这是从零新建项目` 或 `这是在现有项目上的新增需求`。
-- **注意**：所有 spec-agent 技能（如 `/spec-agent-task`、`/spec-agent-write`、`/spec-agent-clarify` 等）只生成与更新 spec 目录下的文档与状态，**不会**直接修改项目代码（如 .proto、业务代码）；仅允许为执行约定流程而使用的临时脚本（如 DB 探查用脚本），且用后删除。具体实现与代码修改应在文档收敛后、在实现阶段进行。
-- **spec 目录位置**：`spec/` 创建在**用户项目工程根目录**（即运行 spec-agent 命令时的当前工作目录，即 AI IDE 中打开的工作区根目录），而不是插件/技能所在仓库的根目录。请在用户项目根目录下执行脚本（或保证 CWD 为用户项目根）；如需覆盖可使用环境变量 `SPEC_AGENT_PROJECT_ROOT`。
+- **范围与 spec 目录**：见 AGENTS.md § Canonical workflow（仅写 spec/，不修改项目代码；spec 位于用户项目根，可设 `SPEC_AGENT_PROJECT_ROOT`）。
 
 ## 三个最常见场景（可直接复制）
 
@@ -44,14 +45,7 @@ AI 会按流程自动完成：
 
 ### 文档依赖顺序（强约束）
 
-- 顺序：`01-analysis.md` → `02-prd.md` → `03-tech.md` → `04-acceptance.md`
-- 规则：
-  - 上游文档变更后，下游文档必须同步更新
-  - 不允许跳过上游直接改下游
-  - 验收文档必须基于前三份文档的最新版本
-  - 四份文档在新建和更新时都必须结合：全局记忆 `spec/00-global-memory.md`、已确认澄清项（以 `00-clarifications.md` 为准，`00-clarifications.json` 为镜像）
-  - `prd/tech/acceptance` 必须包含依赖签名区块：`<!-- DEPENDENCY-SIGNATURE:START --> ... <!-- DEPENDENCY-SIGNATURE:END -->`，签名中记录上游文档哈希
-  - `final-check` 会基于文档内容哈希检查下游是否使用上游最新内容，并校验 R→PRD→TECH→A 的链路追踪完整性
+- 顺序与规则以 **AGENTS.md § Canonical workflow** 为准（analysis → prd → tech → acceptance；上游约束、依赖签名、全局记忆与澄清、final-check 校验）。
 
 ### 实现阶段：TDD 与 RED-GREEN-REFACTOR（推荐）
 
@@ -59,11 +53,9 @@ AI 会按流程自动完成：
 
 ### 用户补充澄清后如何触发更新
 
-1. 打开需求目录下的 `00-clarifications.md`（如使用 spec-agent-init 则为 `spec/0000-00-00/project-spec/00-clarifications.md`，否则为 `spec/YYYY-MM-DD/<name>/00-clarifications.md`），把确认过的问题状态改为 `已确认`，并补全「用户确认/补充」和「解决方案」。
-2. 在 AI IDE 中发送：`/spec-agent-clarify 我已经补充并确认了澄清文档，请基于已确认项重新更新全部文档。` 或 `/spec-agent-clarify 已确认，请更新`。
-3. 若要「有未确认项就先报出来」：`/spec-agent-clarify 按严格模式执行，有未确认项就先报出来。`
-
-更新时 AI 会**结合澄清内容重新设计调整整份文档**（不限于改对应段落），**整体回顾**各文档前后是否矛盾、是否有更合适的实现；若发现需用户确认的内容会**追加到澄清文档**（新澄清项、状态待确认）。
+1. 编辑需求目录下的 `00-clarifications.md`（init 固定路径为 `spec/0000-00-00/project-spec/`，task 为 `spec/YYYY-MM-DD/<name>/`），将状态改为 `已确认`并填写「用户确认/补充」「解决方案」。
+2. 发送：`/spec-agent-clarify 已确认，请更新`；严格模式：`/spec-agent-clarify 按严格模式执行，有未确认项就先报出来`。
+3. 更新与闭环规则见 **AGENTS.md § Clarification policy**（实质性更新、整篇回顾、修订记录、可测试性）。
 
 ## 快速开始四步
 
@@ -76,9 +68,10 @@ AI 会按流程自动完成：
 
 ### 新需求启动
 
-`/spec-agent-init 这是一个新需求，请初始化并生成第一版完整文档。若名称和标题没给你，请你自动生成。`
+- **新需求、要一套完整文档**（按需求建目录、可多需求并存）→ 用 **`/spec-agent-task 需求描述…`**（日期路径 `spec/YYYY-MM-DD/<name>/`）。  
+- **项目级初始化/只维护一份项目 spec**（整个项目对应一个目录）→ 用 **`/spec-agent-init …`**（固定路径 `spec/0000-00-00/project-spec/`）。  
 
-调用时使用**固定日期** `0000-00-00`，需求目录为 `spec/0000-00-00/project-spec/`。先判断当前项目是否为空（无源码目录/代码文件）：**空项目**仅初始化 spec 目录骨架（metadata、澄清基线、激活指针）；**非空项目**会初始化完整 spec 并生成分析报告、PRD、系统设计文档（01/02/03 由 AI 根据项目内容填写），验收与澄清文档使用默认模板内容。
+详见 **docs/INIT-VS-TASK-DECISION-TREE.md**。init 调用时使用固定日期 `0000-00-00`；空项目仅骨架，非空项目 full init 后 AI 填写 01/02/03。
 
 ### 文档重生成
 
@@ -120,15 +113,11 @@ AI 会按流程自动完成：
 
 建议同时补充：`优先级`、`影响范围`、`关联章节`。
 
-注意：
-
-- `归属文档` 仅允许：`analysis/prd/tech/acceptance/global`
-- `状态` 仅允许配置中的状态（默认 `待确认/已确认`）
-- `00-clarifications.md` 是唯一真源；`00-clarifications.json` 由脚本自动同步为镜像
+注意：归属文档、状态枚举、澄清真源与镜像见 **AGENTS.md § Clarification policy** 与配置 `clarify_statuses` / `clarify_confirmed_status`。
 
 ## 目录结构示例
 
-以下 `spec/` 位于**用户项目工程根目录**下（即工作区根目录，非插件仓库根目录）。使用 **spec-agent-init** 时采用固定日期 `0000-00-00` 与名称 `project-spec`；使用 **spec-agent-task** 或脚本直接 init 时可为当天日期 `YYYY-MM-DD`。
+以下 `spec/` 位于用户项目根目录。**何时用 init 固定路径、何时用 task 日期路径**见 **AGENTS.md § Entry decision** 与 **docs/INIT-VS-TASK-DECISION-TREE.md**。
 
 ```text
 <用户项目根目录>/
@@ -149,7 +138,7 @@ AI 会按流程自动完成：
 
 ## 回归测试
 
-按顺序执行：
+执行顺序与说明见 **AGENTS.md § Regression policy**。示例：
 
 ```bash
 python scripts/regression_smoke.py
@@ -159,11 +148,9 @@ python scripts/regression_split_skill_contract.py
 
 或一键：`python scripts/regression_all.py`。
 
-说明：`regression_edge_cases.py` 会临时覆盖配置用于负向测试，需顺序执行。`regression_split_skill_contract.py` 校验 `skills/` 下所有 skill 的契约完整性。
-
 ## 配置
 
-配置文件：`scripts/spec-agent.config.json`（由插件脚本所在目录加载）。常用项：`spec_dir`（相对**用户项目根**，默认 `spec`）、`date_format`、`dry_run_default`、`default_project_mode`（`greenfield`/`existing`）、`clarify_statuses`、`clarify_confirmed_status`、`rules_copy_allowlist`、各类 lock 超时与轮询参数。用户项目根默认为运行脚本时的当前工作目录（CWD），可通过环境变量 `SPEC_AGENT_PROJECT_ROOT` 覆盖。
+配置文件：`scripts/spec-agent.config.json`（由插件脚本所在目录加载）。常用项：`spec_dir`（相对**用户项目根**，默认 `spec`）、`date_format`、`dry_run_default`、`default_project_mode`（`greenfield`/`existing`）、`ai_judge_command` / `ai_judge_timeout_sec`（用于语义判定）、`clarify_statuses`、`clarify_confirmed_status`、`rules_copy_allowlist`、各类 lock 超时与轮询参数。用户项目根默认为运行脚本时的当前工作目录（CWD），可通过环境变量 `SPEC_AGENT_PROJECT_ROOT` 覆盖。若要覆盖 AI 判定命令，可设置环境变量 `SPEC_AGENT_AI_JUDGE_COMMAND`。
 
 ## 故障排查
 

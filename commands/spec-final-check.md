@@ -5,7 +5,7 @@ description: Run quality and consistency check on the active (or named) requirem
 
 # Spec final-check
 
-Run final-check on requirement docs. Run from repository root.
+Run final-check on requirement docs. Run from user project root (CWD or `SPEC_AGENT_PROJECT_ROOT`).
 
 ## Steps
 

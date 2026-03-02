@@ -259,7 +259,7 @@ def cmd_inspect_db(args):
         connections = eng.load_ai_db_connections(path)
     connection_strings = eng.ai_db_connection_strings(connections)
     # 方式 B：执行临时脚本得到全量 schema（及可选 ddl_sql），写入 spec/db/{slug}-schema.md 与可选的 -ddl.sql，analysis 仅写引用行
-    summary, ddl_sql = eng.run_inspect_db_script(path, connection_strings)
+    summary, ddl_sql = eng.run_inspect_db_script(connection_strings)
     if summary is None:
         if not connection_strings:
             block = "- 未提供结构化数据库连接信息；请由调用端 AI 识别后通过 `--db-connections-json` 传入。"
