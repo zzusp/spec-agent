@@ -4,13 +4,14 @@
 
 This repository follows the Cursor Plugin layout (see `.cursor-plugin/plugin.json`): skills live under `skills/`, plugin-level agents under `agents/`, rules under `rules/`.
 
-Use `spec-agent-task` as the primary entry skill in AI IDE.
+Use `spec-agent-chat` as the unified conversational entry in AI IDE; `spec-agent-task` remains the direct full-spec generation command when user explicitly calls it.
 
 ## When to trigger `spec-agent`
 
 Trigger split skills when user intent includes any of:
 
-- **Slash-command with requirement** (e.g. `/spec-agent-task Fix login timeout` or `/spec-agent-task New requirement: ...`) → trigger `spec-agent-task`
+- **Unified chat entry**: user message via `/spec-agent-chat ...` should first be checked for spec-agent relevance; if in-scope, route to one or multiple skills by intent.
+- **Slash-command with requirement** (e.g. `/spec-agent-task Fix login timeout` or `/spec-agent-task New requirement: ...`) → trigger `spec-agent-task`. Each skill is also exposed as a **command** with the same name (e.g. `spec-agent-task`) so that typing `/spec-agent-xxx` in Cursor reliably invokes that skill; see `commands/spec-agent-*.md` and `docs/PLUGIN-AND-SKILL-COMPLIANCE.md`.
 - User proposes a dev or feature requirement and needs a full requirement doc set
 - Write/update `analysis` / `PRD` / `tech` / `acceptance` / `clarifications`
 - Refine docs over multiple rounds based on clarifications
@@ -19,7 +20,7 @@ Trigger split skills when user intent includes any of:
 
 ## Canonical workflow
 
-1. Use `/spec-agent-task <raw_requirement>` in AI IDE.
+1. Prefer `/spec-agent-chat <message>` as unified dialogue entry in AI IDE; when user explicitly wants direct full generation, use `/spec-agent-task <raw_requirement>`.
 2. **Scope (all spec-agent skills)**: Every spec-agent skill **only** writes/updates files under `spec/` (requirement docs, global memory, metadata, `spec/.active`, and under `spec/db/` when applicable). No skill may modify **project source code** (e.g. `.proto`, application code, config, dependencies); code changes belong to the implementation phase after docs are closed. **Exception**: temporary scripts (e.g. `.tmp_inspect_db.py` at project root for DB inspection per “DB context policy” below) may be created for script execution and **must be deleted after use**.
   - **Where `spec/` lives**: The `spec` directory is always under the **user’s project (workspace) root**—the directory from which the spec-agent commands are run (current working directory), **not** the plugin/skill repository root. When using the plugin in an IDE, ensure the process runs with the user’s project as CWD so that `spec/` is created at `<user_project_root>/spec`. Override with env `SPEC_AGENT_PROJECT_ROOT` if needed.
 3. Caller AI generates `name/title` and writes docs directly in strict order:

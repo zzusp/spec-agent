@@ -1,6 +1,7 @@
 ---
 name: spec-agent-write
 description: Write requirement documents directly with caller AI in AI-first mode. Use when workspace is initialized and docs must be drafted to satisfy section requirements and mandatory fields.
+disable-model-invocation: true
 ---
 
 # Spec agent write

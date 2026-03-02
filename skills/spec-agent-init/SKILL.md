@@ -1,6 +1,7 @@
 ---
 name: spec-agent-init
-description: "Initialize the project's spec directory for AI-first document generation. Fixed date and path; no .active switching. Detects empty vs non-empty project: empty creates spec skeleton only; non-empty also drives analysis, PRD, and tech doc generation."
+description: "Initialize the project's spec directory for AI-first document generation. Use when users ask to initialize or refresh project-level spec docs at the fixed path. Fixed date and path; no .active switching. Detects empty vs non-empty project: empty creates spec skeleton only; non-empty also drives analysis, PRD, and tech doc generation."
+disable-model-invocation: true
 ---
 
 # Spec agent init

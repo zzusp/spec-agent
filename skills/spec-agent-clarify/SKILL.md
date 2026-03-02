@@ -1,6 +1,7 @@
 ---
 name: spec-agent-clarify
 description: Close clarification items and drive clarification-based document rewrites in AI-first mode. Use when user has batch-confirmed clarification rows and wants systematic doc rewrites with round report; apply clarification decisions per AGENTS.md § Document update (apply clarifications).
+disable-model-invocation: true
 ---
 
 # Spec agent clarify

@@ -1,6 +1,7 @@
 ---
 name: spec-agent-update
 description: Regenerate or refine existing requirement docs directly with caller AI. Use when user explicitly asks to revise specific doc(s)/section(s) without clarification-table workflow; if intent is to apply confirmed clarifications, use spec-agent-clarify or spec-agent-chat.
+disable-model-invocation: true
 ---
 
 # Spec agent update

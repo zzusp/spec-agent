@@ -1,6 +1,7 @@
 ---
 name: spec-agent-memory
 description: Maintain project-level and user-level persistent memory shared by all requirements. Use when users explicitly ask to add or change global memory; for in-conversation updates, spec-agent-chat can also record to global memory.
+disable-model-invocation: true
 ---
 
 # Spec agent memory

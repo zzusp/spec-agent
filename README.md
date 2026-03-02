@@ -22,11 +22,11 @@ spec-agent 是一套面向 AI IDE 的需求文档工作流：把原始需求转�
 
 ### 验证安装
 
-在新会话中发起一次应触发技能的操作（例如「有一个新需求，需求如下：……」），AI 应能调用 `spec-agent-task` 并开始生成文档。完整用法见 [QUICKSTART.md](QUICKSTART.md)。
+在新会话中发起一次应触发技能的操作（例如 `/spec-agent-chat 现在有一个新需求，需求如下：……`），AI 应能先识别场景，再路由到对应技能（如 `spec-agent-task`）并开始生成文档。完整用法见 [QUICKSTART.md](QUICKSTART.md)。
 
 ## 基本工作流
 
-1. **提需求** — 用 `/spec-agent-task` 把原始需求（目标、范围、限制、上下游、数据库信息等）一次性交给 AI，可附带「从零新建项目」或「现有项目上新需求」等澄清策略。
+1. **统一入口对话** — 优先用 `/spec-agent-chat` 输入原始需求或更新诉求（目标、范围、限制、上下游、数据库信息等），由 chat 自动识别意图并路由到一个或多个技能；也可直接使用 `/spec-agent-task` 走全量文档生成。
 2. **首版文档** — AI 按顺序生成分析、PRD、技术方案、验收清单，并做一致性检查；不明确点写入澄清文档。
 3. **补充澄清** — 你在 `00-clarifications.md` 中把项标为「已确认」并填写确认内容与方案，再用 `/spec-agent-clarify` 让 AI 基于已确认项重写全部文档并复检。
 4. **收敛** — 重复「补充澄清 → clarify」直到检查通过，需求文档集即可作为交付与开发依据。
@@ -40,7 +40,7 @@ spec-agent 是一套面向 AI IDE 的需求文档工作流：把原始需求转�
 
 | Skill | Description |
 |:------|:------------|
-| `spec-agent-task` | 统一编排入口：从原始需求到完整文档集，含阶段子代理与澄清闭环 |
+| `spec-agent-task` | 全量文档生成技能：从原始需求到完整文档集，含阶段子代理与澄清闭环 |
 | `spec-agent-init` | 初始化需求工作区：固定日期与路径 `spec/0000-00-00/project-spec/`；空项目仅建骨架，非空项目建完整 spec 并生成分析/PRD/技术方案（验收与澄清为默认内容） |
 | `spec-agent-write` | 由调用端 AI 直接撰写 analysis / PRD / tech / acceptance 四份文档 |
 | `spec-agent-update` | 通用文档重写（非澄清专项） |
@@ -48,7 +48,7 @@ spec-agent 是一套面向 AI IDE 的需求文档工作流：把原始需求转�
 | `spec-agent-check` | 执行 final-check 质量门禁与一致性检查 |
 | `spec-agent-memory` | 维护跨需求全局记忆 `spec/00-global-memory.md` |
 | `spec-agent-switch` | 切换当前激活需求（多需求场景） |
-| `spec-agent-chat` | 对话中识别澄清/记忆，写入并联动更新文档（结合澄清重设计整份文档、整体回顾，需用户确认的追加到澄清）与阶段状态 |
+| `spec-agent-chat` | 统一对话入口：先判断是否为 spec-agent 场景，再按意图路由到一个或多个技能；对话补充场景下可直接分类为澄清/记忆并联动更新 |
 
 ### Agents
 

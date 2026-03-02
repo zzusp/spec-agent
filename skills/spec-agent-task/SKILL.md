@@ -1,6 +1,7 @@
 ---
 name: spec-agent-task
-description: Entry skill for full spec delivery. Trigger only when user runs /spec-agent-task with requirement text; then produce analysis, PRD, tech, acceptance.
+description: Full-spec delivery skill. Use when user runs /spec-agent-task with requirement text and expects end-to-end analysis, PRD, tech, acceptance generation.
+disable-model-invocation: true
 ---
 
 # Spec agent task

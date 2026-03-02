@@ -1,6 +1,7 @@
 ---
 name: spec-agent-check
 description: Run quality gates and consistency checks for AI-written spec documents. Use when docs are drafted/updated and must be validated before acceptance.
+disable-model-invocation: true
 ---
 
 # Spec agent check

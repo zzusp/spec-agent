@@ -1,6 +1,7 @@
 ---
 name: spec-agent-switch
 description: Switch active requirement context in multi-requirement workflows. Use when user asks to operate on another requirement and active context may be ambiguous.
+disable-model-invocation: true
 ---
 
 # Spec agent switch

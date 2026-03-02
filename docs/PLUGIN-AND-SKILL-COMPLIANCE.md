@@ -13,8 +13,11 @@
 - **规范**：Skill 由用户在 AI IDE 中通过 **斜杠命令** 触发，格式为 `/skill-name [参数或自然语言]`。Skill 名称与 `skills/<name>/SKILL.md` 的 frontmatter `name` 一致时，会注册为对应斜杠命令。
 - **当前**：
   - 用户触发：`/spec-agent-task ...`、`/spec-agent-init ...`、`/spec-agent-clarify ...`、`/spec-agent-chat ...` 等，与 9 个 skill 的 `name`（如 `spec-agent-task`）一一对应。
+  - **统一对话入口**：`spec-agent-chat` 作为会话入口时，先做“是否属于 spec-agent 场景”判定；若属于则按意图路由到一个或多个技能（也可在 chat 内走本地 clarification/memory 流程）。
+  - **双注册（斜杠可靠触发）**：为避免“指定调用但不触发”，每个 spec-agent 技能除在 `skills/` 下定义外，在 `commands/` 下均有**同名** command 文件（如 `commands/spec-agent-task.md`）。Cursor 会从 `commands/` 发现并注册斜杠命令，用户输入 `/spec-agent-xxx` 时优先命中该 command，command 正文要求 AI 按对应 `skills/spec-agent-xxx/SKILL.md` 执行，从而保证斜杠一定触发预期技能。
+  - 各 skill 的 frontmatter 已设置 `disable-model-invocation: true`，技能**仅**在用户显式输入 `/spec-agent-xxx`（或执行同名 command）时加入上下文，不参与“Agent Decides”自动匹配，避免误触发或与 command 双入口歧义。
   - 子技能/编排：`spec-agent-task` 中列出的 “Child skills” 为**逻辑分组**，不表示 Cursor 自动链式调用。编排由**调用端 AI** 在单次 `/spec-agent-task` 会话中按 SKILL.md 的 Execution sequence 执行脚本与写文档完成，而非多次发起 `/spec-agent-init`、`/spec-agent-write` 等斜杠命令。
-- **结论**：符合规范。每个 skill 对应一个用户可用的斜杠命令；编排在 task 内通过文档与脚本约定完成。
+- **结论**：符合规范。每个 skill 对应一个用户可用的斜杠命令；通过 command 同名双注册与 `disable-model-invocation` 保证斜杠调用稳定触发；编排在 task 内通过文档与脚本约定完成。
 
 ## 3. 脚本使用方式
 
@@ -36,6 +39,7 @@
 
 - **规范**：Skill 之间可通过“在文档中指名另一个 skill”建立引用，由 AI 理解并协调行为；不需要也不依赖 Cursor 提供“程序化链式调用”能力。
 - **当前**：
+  - **spec-agent-chat** 可引用并路由到其他技能（如 task/init/switch/write/clarify/update/check/memory），属于文档级编排约定；由同一会话内 AI 按路由顺序执行，不依赖 Cursor 程序化链式调用。
   - **spec-agent-task** 列出 Child skills（spec-agent-memory、spec-agent-switch、spec-agent-init 等），表示编排时会用到这些能力，由同一会话内的 AI 按 task 的 Execution sequence 执行（脚本 + 写文件），而非再触发其他斜杠命令。
   - **spec-agent-write**、**spec-agent-clarify** 等引用“按 spec-agent-clarify 的 candidate question policy”等，为**策略/契约引用**，不涉及运行时触发其他 skill。
   - 建议下一步（如 spec-agent-switch 的 Output）：用“建议用户使用 `/spec-agent-write` 或 `/spec-agent-check`”等表述，明确**用户**可主动发起的下一跳斜杠命令。
@@ -46,14 +50,16 @@
 ### Commands（Agent 可执行命令）
 
 - **规范**：Plugin 可将“可由 Agent 执行的命令”放在 `commands/` 目录，每文件为 `.md`/`.mdc`/`.txt`，含 frontmatter `name`、`description` 及正文步骤；Cursor 会做组件发现并供 Agent/用户发现与执行。
-- **当前**：`commands/` 下提供 6 个命令文件，对应 `spec_agent.py` 常用子命令：
-  - `spec-init`：初始化需求工作区（由 spec-agent-init 调用时使用固定日期与名称，路径 `spec/0000-00-00/project-spec/`；空项目 state-only，非空项目 full init 后 caller 填写 01/02/03，见 `skills/spec-agent-init/SKILL.md`）
-  - `spec-final-check`：对当前/指定需求做终检
-  - `spec-check-clarifications`：检查待确认澄清数量（可 `--strict` 作门禁）
-  - `spec-set-active`：设置当前活跃需求
-  - `spec-sync-memory`：将全局记忆同步到需求元数据
-  - `spec-list`：列出需求目录
-- **使用**：在 IDE/CLI/Cloud 中，Agent 或用户可通过插件暴露的 Command 名称执行上述操作；命令正文中写明从仓库根目录执行 `python scripts/spec_agent.py <subcommand> ...`，完整契约以 AGENTS.md 为准。
+- **当前**：`commands/` 下提供两类命令：
+  - **脚本子命令（6 个）**：对应 `spec_agent.py` 常用子命令，供直接执行或由技能内引用。
+    - `spec-init`：初始化需求工作区（由 spec-agent-init 调用时使用固定日期与名称，路径 `spec/0000-00-00/project-spec/`；空项目 state-only，非空项目 full init 后 caller 填写 01/02/03，见 `skills/spec-agent-init/SKILL.md`）
+    - `spec-final-check`：对当前/指定需求做终检
+    - `spec-check-clarifications`：检查待确认澄清数量（可 `--strict` 作门禁）
+    - `spec-set-active`：设置当前活跃需求
+    - `spec-sync-memory`：将全局记忆同步到需求元数据
+    - `spec-list`：列出需求目录
+  - **技能同名命令（9 个）**：与 `skills/` 下各技能同名（如 `spec-agent-task`、`spec-agent-chat` 等），用于保证用户输入 `/spec-agent-xxx` 时稳定触发对应技能；命令正文要求 AI 按 `skills/spec-agent-xxx/SKILL.md` 执行。
+- **使用**：在 IDE/CLI/Cloud 中，Agent 或用户可通过插件暴露的 Command 名称执行上述操作；脚本类命令正文中写明从仓库根目录执行 `python scripts/spec_agent.py <subcommand> ...`，完整契约以 AGENTS.md 为准。
 
 ### Hooks（事件触发自动化）
 
@@ -71,7 +77,7 @@
 ## 8. 总结
 
 - **Plugin 清单**：符合 Cursor Plugin 规范；skills/agents/rules/commands/hooks 路径与官方约定一致。
-- **Skill 触发**：以用户斜杠命令 `/spec-agent-<name>` 触发；编排在 spec-agent-task 内由 AI 按文档与脚本完成，不依赖多 skill 程序化链式调用。
+- **Skill 触发**：以用户斜杠命令 `/spec-agent-<name>` 触发；`spec-agent-chat` 可作为统一对话入口先做场景判定与多技能路由，`spec-agent-task` 继续负责全量文档生成编排，不依赖多 skill 程序化链式调用。
 - **脚本与 Commands**：以 `scripts/spec_agent.py` 为唯一入口；子命令契约以 AGENTS.md 为准；常用子命令已通过 `commands/` 暴露为 Plugin Commands，便于发现与执行。
 - **Hooks**：通过 `hooks/hooks.json` 提供可选事件钩子（如 sessionEnd 列出需求），可按项目需要调整或扩展。
 - **脚本运行时配置**：`scripts/spec-agent.config.json` 仅供脚本使用，与 plugin.json 分离，符合规范。

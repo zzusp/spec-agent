@@ -40,10 +40,21 @@ def validate_split_skill(skill_dir: Path):
 
     skill_text = skill_md.read_text(encoding="utf-8")
     frontmatter = parse_frontmatter(skill_text)
-    allowed = {"name", "description"}
+    required = {"name", "description"}
+    optional = {"disable-model-invocation"}
     keys = set(frontmatter.keys())
-    if keys != allowed:
-        raise RuntimeError(f"{skill_dir} frontmatter keys must be exactly {sorted(allowed)}, got {sorted(keys)}")
+    missing = required - keys
+    unknown = keys - required - optional
+    if missing or unknown:
+        raise RuntimeError(
+            f"{skill_dir} frontmatter invalid; missing={sorted(missing)}, unknown={sorted(unknown)}, got={sorted(keys)}"
+        )
+    if "disable-model-invocation" in frontmatter:
+        raw_flag = str(frontmatter.get("disable-model-invocation", "")).strip().lower()
+        if raw_flag not in {"true", "false"}:
+            raise RuntimeError(
+                f"{skill_dir} disable-model-invocation must be true/false, got: {frontmatter.get('disable-model-invocation')}"
+            )
 
     skill_name = frontmatter.get("name", "")
     if not skill_name:
