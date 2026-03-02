@@ -69,6 +69,13 @@ def test_invalid_lock_config_rejected():
     if p.returncode == 0:
         raise RuntimeError("expected invalid requirement_lock_poll_sec to fail")
 
+    base["requirement_lock_poll_sec"] = 0.05
+    base["enforce_final_check_agent_independence"] = "true"
+    CFG.write_text(json.dumps(base, ensure_ascii=False, indent=2), encoding="utf-8")
+    p = run(["list"], check=False)
+    if p.returncode == 0:
+        raise RuntimeError("expected invalid enforce_final_check_agent_independence to fail")
+
 
 def test_invalid_project_mode_config_rejected():
     if BACKUP.exists():

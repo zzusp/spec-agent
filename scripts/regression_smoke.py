@@ -39,8 +39,24 @@ def strip_clarification_block(content: str) -> str:
     return pattern.sub("", content)
 
 
+def strip_dependency_signature_block(content: str) -> str:
+    pattern = re.compile(
+        re.escape("<!-- DEPENDENCY-SIGNATURE:START -->") + r"[\s\S]*?" + re.escape("<!-- DEPENDENCY-SIGNATURE:END -->"),
+        re.MULTILINE,
+    )
+    return pattern.sub("", content)
+
+
+def strip_revision_section(content: str) -> str:
+    pattern = re.compile(r"^##\s+修订记录\s*$[\s\S]*?(?=^##\s+|\Z)", re.MULTILINE)
+    return pattern.sub("", content)
+
+
 def content_hash(content: str) -> str:
-    return hashlib.md5(strip_clarification_block(content).encode("utf-8")).hexdigest()
+    normalized = strip_clarification_block(content)
+    normalized = strip_dependency_signature_block(normalized)
+    normalized = strip_revision_section(normalized)
+    return hashlib.md5(normalized.encode("utf-8")).hexdigest()
 
 
 def dependency_signature_block(pairs: dict[str, str]) -> str:
@@ -356,8 +372,8 @@ validate -> execute -> persist -> audit
   2. 触发重复提交并观察处理结果。
   3. 查询数据库确认无脏数据与越权结果。
 - 通过标准：
-  1. 异常提示清晰且可恢复。
-  2. 重复提交处理符合预期策略。
+  1. 异常提示包含错误码且可恢复。
+  2. 重复提交返回固定状态码且数据库条数不增加。
 - 失败处理：
   1. 记录失败步骤与数据库快照。
   2. 反馈并修订后重新验收。
@@ -431,6 +447,20 @@ validate -> execute -> persist -> audit
         raise RuntimeError("expected final-check to fail when dependency signature is stale")
     (req_dir / "04-acceptance.md").write_text(acceptance, encoding="utf-8")
 
+    # Negative check 3: vague/non-assertable acceptance criteria should fail final-check.
+    acceptance_vague = (
+        acceptance
+        .replace("1. 结果字段与业务预期一致。", "1. 功能正常。")
+        .replace("2. 数据状态与响应一致。", "2. 体验良好。")
+        .replace("1. 异常提示包含错误码且可恢复。", "1. 体验良好。")
+        .replace("2. 重复提交返回固定状态码且数据库条数不增加。", "2. 功能正常。")
+    )
+    (req_dir / "04-acceptance.md").write_text(acceptance_vague, encoding="utf-8")
+    bad_out = run(["final-check", "--name", REQ, "--dry-run"], check=True).stdout
+    if issue_count(bad_out) <= 0:
+        raise RuntimeError("expected final-check to fail when acceptance pass criteria are not assertable")
+    (req_dir / "04-acceptance.md").write_text(acceptance, encoding="utf-8")
+
     out = run(["final-check", "--name", REQ]).stdout
     if "final-check issues: 0" not in out:
         raise RuntimeError(f"unexpected final-check result: {out}")
@@ -439,12 +469,27 @@ validate -> execute -> persist -> audit
     run(["subagent-stage", "--name", REQ, "--stage", "prd", "--status", "completed", "--agent", "prd-agent"])
     run(["subagent-stage", "--name", REQ, "--stage", "tech", "--status", "completed", "--agent", "tech-agent"])
     run(["subagent-stage", "--name", REQ, "--stage", "acceptance", "--status", "completed", "--agent", "acceptance-agent"])
+    bad_fc = run(
+        ["subagent-stage", "--name", REQ, "--stage", "final_check", "--status", "completed", "--agent", "analysis-agent"],
+        check=False,
+    )
+    if bad_fc.returncode == 0:
+        raise RuntimeError("expected final_check stage to reject non-independent agent")
     run(["subagent-stage", "--name", REQ, "--stage", "final_check", "--status", "completed", "--agent", "final-check-agent"])
     status_payload = json.loads(run(["--json-output", "subagent-status", "--name", REQ]).stdout.strip())
     if status_payload.get("current_stage") != "final_check":
         raise RuntimeError(f"unexpected subagent current_stage: {status_payload}")
     if status_payload.get("stale_stages"):
         raise RuntimeError(f"unexpected stale stages after ordered completion: {status_payload}")
+
+    # Non-semantic revision updates should not trigger stale stage normalization.
+    analysis_path = req_dir / "01-analysis.md"
+    analysis_text = analysis_path.read_text(encoding="utf-8")
+    analysis_text += "\n| 2025-02-26 | 回归测试 | 仅更新修订记录 |\n"
+    analysis_path.write_text(analysis_text, encoding="utf-8")
+    status_after_revision = json.loads(run(["--json-output", "subagent-status", "--name", REQ]).stdout.strip())
+    if status_after_revision.get("stale_stages"):
+        raise RuntimeError(f"revision-only changes should not mark stale stages: {status_after_revision}")
 
     # Clarify-flow: 更新澄清内容后 → 门禁通过 → final-check 通过（验证 spec-agent-clarify 的关联触发路径）
     clar_md_path = req_dir / "00-clarifications.md"
@@ -478,6 +523,33 @@ validate -> execute -> persist -> audit
     out_restored = run(["final-check", "--name", REQ]).stdout
     if "final-check issues: 0" not in out_restored:
         raise RuntimeError(f"expected final-check ok after restoring C-xxx in docs: {out_restored}")
+
+    # Targeted clarification coverage: PRD-targeted confirmed clarification must be referenced in PRD.
+    clar_md = clar_md_path.read_text(encoding="utf-8-sig")
+    targeted_row = "| C-099 | 已确认 | 高 | 范围 | prd | 需求范围与边界 | 新增PRD定向澄清 | 范围已确认 | 已按确认更新PRD |"
+    if targeted_row not in clar_md:
+        clar_md = clar_md.replace(
+            "|---|---|---|---|---|---|---|---|---|\n",
+            "|---|---|---|---|---|---|---|---|---|\n" + targeted_row + "\n",
+            1,
+        )
+        clar_md_path.write_text(clar_md, encoding="utf-8")
+    prd_path = req_dir / "02-prd.md"
+    prd_text = prd_path.read_text(encoding="utf-8")
+    if "C-099" not in prd_text:
+        prd_text = prd_text.replace(
+            "- [C-002] 需求已提供数据库连接信息，可用于分析阶段拉取库表结构。",
+            "- [C-002] 需求已提供数据库连接信息，可用于分析阶段拉取库表结构。\n- [C-099] 新增PRD定向澄清已确认并落地。",
+        )
+    prd_without_c099 = re.sub(r"\bC-099\b", "C099REMOVED", prd_text)
+    prd_path.write_text(prd_without_c099, encoding="utf-8")
+    targeted_fail = run(["final-check", "--name", REQ, "--dry-run"], check=True).stdout
+    if issue_count(targeted_fail) <= 0:
+        raise RuntimeError("expected final-check to fail when PRD-targeted clarification ID is missing in PRD doc")
+    prd_path.write_text(prd_without_c099.replace("C099REMOVED", "C-099"), encoding="utf-8")
+    targeted_ok = run(["final-check", "--name", REQ], check=True).stdout
+    if "final-check issues: 0" not in targeted_ok:
+        raise RuntimeError(f"expected final-check ok after restoring PRD-targeted clarification id: {targeted_ok}")
 
     # Trigger final-check failure and verify auto reopen mapping to earliest impacted stage.
     prd_broken = prd.replace("| R-02 | 需求B | 明确异常处理与提示 |\n", "")

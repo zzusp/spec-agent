@@ -19,5 +19,6 @@
   "metadata_lock_stale_sec": 120,
   "requirement_lock_timeout_sec": 8,
   "requirement_lock_poll_sec": 0.05,
-  "requirement_lock_stale_sec": 120
+  "requirement_lock_stale_sec": 120,
+  "enforce_final_check_agent_independence": true
 }

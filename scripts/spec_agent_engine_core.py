@@ -64,6 +64,7 @@ DEFAULT_CONFIG = {
     "requirement_lock_timeout_sec": 8.0,
     "requirement_lock_poll_sec": 0.05,
     "requirement_lock_stale_sec": 120.0,
+    "enforce_final_check_agent_independence": True,
 }
 
 PROJECT_MODES = {"greenfield", "existing"}
@@ -307,6 +308,12 @@ def validate_config(cfg):
         if isinstance(val, bool) or not isinstance(val, (int, float)) or float(val) <= 0:
             raise SystemExit(f"config {key} must be positive number")
 
+    def ensure_bool(key: str):
+        if key not in cfg:
+            return
+        if not isinstance(cfg[key], bool):
+            raise SystemExit(f"config {key} must be boolean")
+
     required_keys = {
         "spec_dir": str,
         "date_format": str,
@@ -354,6 +361,7 @@ def validate_config(cfg):
     ensure_positive_number("requirement_lock_timeout_sec")
     ensure_positive_number("requirement_lock_poll_sec")
     ensure_positive_number("requirement_lock_stale_sec")
+    ensure_bool("enforce_final_check_agent_independence")
 
 
 validate_config(CONFIG)
@@ -377,6 +385,9 @@ ENABLE_AUTO_SEEDS = bool(CONFIG.get("enable_auto_seed_clarifications", True))
 MAX_SEED_PER_DOC = int(CONFIG.get("max_seed_questions_per_doc", 3))
 MIN_DOC_BULLETS = CONFIG.get("min_doc_bullets", {}) if isinstance(CONFIG.get("min_doc_bullets", {}), dict) else {}
 MAX_NEW_CLARIFICATIONS_PER_ROUND = int(CONFIG.get("max_new_clarifications_per_round", 10))
+ENFORCE_FINAL_CHECK_AGENT_INDEPENDENCE = bool(
+    CONFIG.get("enforce_final_check_agent_independence", DEFAULT_CONFIG["enforce_final_check_agent_independence"])
+)
 DRY_RUN_DEFAULT = bool(CONFIG.get("dry_run_default", False))
 METADATA_LOCK_TIMEOUT_SEC = float(CONFIG.get("metadata_lock_timeout_sec", DEFAULT_CONFIG["metadata_lock_timeout_sec"]))
 METADATA_LOCK_POLL_SEC = float(CONFIG.get("metadata_lock_poll_sec", DEFAULT_CONFIG["metadata_lock_poll_sec"]))
@@ -2097,9 +2108,35 @@ def strip_clarification_block(content: str) -> str:
     return pattern.sub("", content)
 
 
+def strip_dependency_signature_block(content: str) -> str:
+    """Remove dependency signature block to avoid metadata-only hash drift."""
+    pattern = re.compile(
+        re.escape(DEP_SIG_START) + r"[\s\S]*?" + re.escape(DEP_SIG_END),
+        re.MULTILINE,
+    )
+    return pattern.sub("", content)
+
+
+def strip_revision_section(content: str) -> str:
+    """Remove revision history section to keep semantic hashes stable."""
+    pattern = re.compile(
+        r"^##\s+修订记录\s*$[\s\S]*?(?=^##\s+|\Z)",
+        re.MULTILINE,
+    )
+    return pattern.sub("", content)
+
+
+def strip_non_semantic_blocks(content: str) -> str:
+    """Strip volatile metadata sections that should not trigger semantic drift."""
+    out = strip_clarification_block(content)
+    out = strip_dependency_signature_block(out)
+    out = strip_revision_section(out)
+    return out
+
+
 def content_hash_without_clarifications(content: str) -> str:
-    """Compute stable hash for a document by ignoring clarification block volatility."""
-    return hashlib.md5(strip_clarification_block(content).encode("utf-8")).hexdigest()
+    """Compute stable hash for semantic content while ignoring volatile metadata blocks."""
+    return hashlib.md5(strip_non_semantic_blocks(content).encode("utf-8")).hexdigest()
 
 
 def extract_dependency_signatures(content: str) -> dict[str, str]:
@@ -2549,6 +2586,20 @@ def update_subagent_stage(
             doc_hash, validation_errors = _validate_doc_stage_completion(path, stage_norm, upstream_hashes)
         elif stage_norm == "final_check":
             validation_errors = _validate_final_check_stage(path)
+            if ENFORCE_FINAL_CHECK_AGENT_INDEPENDENCE:
+                final_agent = str(agent or "").strip()
+                doc_agents = {
+                    str(stages.get(doc_stage, {}).get("agent", "")).strip()
+                    for doc_stage in SUBAGENT_STAGE_DOC_MAP.keys()
+                    if str(stages.get(doc_stage, {}).get("status", "")).strip() == "completed"
+                    and str(stages.get(doc_stage, {}).get("agent", "")).strip()
+                }
+                if not final_agent:
+                    validation_errors.append("final_check requires --agent when independence check is enabled")
+                elif final_agent in doc_agents:
+                    validation_errors.append(
+                        f"final_check agent must differ from completed doc stage agents, got: {final_agent}"
+                    )
         if validation_errors and not force:
             hints = "\n".join([f"- {x}" for x in validation_errors])
             raise SystemExit(f"stage validation failed: {stage_norm}\n{hints}")

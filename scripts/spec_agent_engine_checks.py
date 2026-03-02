@@ -122,6 +122,48 @@ def final_check(path: Path, write_back: bool = True):
                 rid_map.setdefault(rid, set()).add(aid)
         return rid_map
 
+    def parse_clarification_targets(raw_doc: str) -> set[str]:
+        text = str(raw_doc or "").strip().lower()
+        targets = set()
+        if "global" in text or "全局" in text:
+            targets.add("global")
+        if "analysis" in text or "分析" in text:
+            targets.add("analysis")
+        if "prd" in text:
+            targets.add("prd")
+        if "tech" in text or "技术" in text:
+            targets.add("tech")
+        if "acceptance" in text or "验收" in text:
+            targets.add("acceptance")
+        if not targets:
+            targets.add("global")
+        return targets
+
+    def extract_plan_subsection(block: str, section_name: str) -> str:
+        pattern = re.compile(
+            rf"-\s*{re.escape(section_name)}[：:]\s*([\s\S]*?)(?=\n-\s*(?:前置条件|验收步骤|通过标准|失败处理)[：:]|\Z)",
+            re.MULTILINE,
+        )
+        m = pattern.search(block or "")
+        return (m.group(1) if m else "").strip()
+
+    def extract_plan_items(section_content: str) -> list[str]:
+        items = []
+        for raw in (section_content or "").splitlines():
+            line = raw.strip()
+            if not line:
+                continue
+            if re.match(r"^\d+\.\s+", line):
+                items.append(re.sub(r"^\d+\.\s+", "", line).strip())
+                continue
+            if re.match(r"^-\s+", line):
+                items.append(re.sub(r"^-\s+", "", line).strip())
+        return [x for x in items if x]
+
+    def section_has_keywords(items: list[str], keywords: list[str]) -> bool:
+        text = "\n".join(items)
+        return any(k in text for k in keywords)
+
     # Global memory sync check
     try:
         meta, meta_version = load_metadata_file(path, with_version=True)
@@ -142,6 +184,11 @@ def final_check(path: Path, write_back: bool = True):
         and not str(r.get("question", "")).strip().startswith("（示例）")
     ]
     has_confirmed_clarifications = len(confirmed_questions) > 0
+    all_confirmed_ids = {
+        str(r.get("id", "")).strip()
+        for r in confirmed_questions
+        if re.fullmatch(r"C-\d+", str(r.get("id", "")).strip())
+    }
 
     # Required docs presence + memory/clarification integration checks
     required_doc_keys = ("analysis", "prd", "tech", "acceptance")
@@ -167,8 +214,31 @@ def final_check(path: Path, write_back: bool = True):
             )
             m = clar_block_pattern.search(raw_content)
             block = m.group(1) if m else ""
-            if has_confirmed_clarifications and not re.search(r"\bC-\d+\b", block):
+            block_ids = set(re.findall(r"\bC-\d+\b", block))
+            if has_confirmed_clarifications and not block_ids:
                 add_issue(key, f"{DOC_FILES[key]} 澄清补充区块未引用已确认澄清项（需包含 C-xxx）。", f"{key}.clarification.missing_reference")
+            elif has_confirmed_clarifications and all_confirmed_ids and not (block_ids & all_confirmed_ids):
+                add_issue(
+                    key,
+                    f"{DOC_FILES[key]} 澄清补充区块未引用任何已确认澄清ID（需引用当前已确认 C-xxx）。",
+                    f"{key}.clarification.missing_confirmed_ids",
+                )
+
+            required_ids = set()
+            for row in confirmed_questions:
+                cid = str(row.get("id", "")).strip()
+                if not re.fullmatch(r"C-\d+", cid):
+                    continue
+                targets = parse_clarification_targets(str(row.get("doc", "")))
+                if "global" in targets or key in targets:
+                    required_ids.add(cid)
+            missing_required_ids = sorted(required_ids - block_ids)
+            if missing_required_ids:
+                add_issue(
+                    key,
+                    f"{DOC_FILES[key]} 缺少目标澄清引用：{', '.join(missing_required_ids)}。",
+                    f"{key}.clarification.missing_required_ids",
+                )
 
     # Analysis checks
     analysis_path = path / DOC_FILES["analysis"]
@@ -242,6 +312,44 @@ def final_check(path: Path, write_back: bool = True):
                 required_terms = ("前置条件", "验收步骤", "通过标准", "失败处理")
                 if not all(term in block for term in required_terms):
                     add_issue("acceptance", f"{aid} 缺少完整验收计划要素（前置条件/验收步骤/通过标准/失败处理）。", "acceptance.structure.missing_plan_elements")
+                    break
+
+                step_items = extract_plan_items(extract_plan_subsection(block, "验收步骤"))
+                pass_items = extract_plan_items(extract_plan_subsection(block, "通过标准"))
+                step_action_keywords = ["触发", "执行", "调用", "提交", "输入", "点击", "查询", "请求", "发送", "读取", "检查", "核对", "观察", "记录", "验证"]
+                step_observable_keywords = ["响应", "返回", "状态", "字段", "日志", "数据库", "表", "记录", "消息", "事件", "文件", "页面", "结果", "状态码", "code"]
+                pass_assert_keywords = ["等于", "应为", "包含", "不包含", "存在", "不存在", "一致", "匹配", "状态码", "code", "返回", "字段", "日志", "数据库", "数量", "条"]
+                pass_vague_keywords = ["正常", "良好", "友好", "稳定", "无异常", "符合预期"]
+
+                if not step_items or not (
+                    section_has_keywords(step_items, step_action_keywords)
+                    and section_has_keywords(step_items, step_observable_keywords)
+                ):
+                    add_issue(
+                        "acceptance",
+                        f"{aid} 验收步骤不可执行或缺少可观测对象（需包含明确操作与观测对象）。",
+                        "acceptance.testability.steps_not_executable",
+                    )
+                    break
+
+                has_assertable_pass = False
+                for it in pass_items:
+                    if any(k in it for k in pass_assert_keywords) or bool(re.search(r"[=<>]|\d", it)):
+                        has_assertable_pass = True
+                        break
+                if not pass_items or not has_assertable_pass:
+                    add_issue(
+                        "acceptance",
+                        f"{aid} 通过标准不可断言（需包含可验证判定，如状态码/字段值/数据变化/日志事件）。",
+                        "acceptance.testability.pass_not_assertable",
+                    )
+                    break
+                if all(any(v in it for v in pass_vague_keywords) for it in pass_items):
+                    add_issue(
+                        "acceptance",
+                        f"{aid} 通过标准表述过于笼统（如“功能正常”），请改为可断言条款。",
+                        "acceptance.testability.pass_too_vague",
+                    )
                     break
         if any(p in check_content for p in PLACEHOLDERS_EFFECTIVE):
             add_issue("acceptance", "验收清单仍包含占位内容，请补充完整。", "acceptance.content.placeholder")
